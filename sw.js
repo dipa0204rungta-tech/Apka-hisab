@@ -1,6 +1,6 @@
 // Offline support. Network first, so the shop always gets the latest version
 // when online; the cached copy is used when there is no connection.
-const CACHE = 'apka-hisab-v6';
+const CACHE = 'apka-hisab-v7';
 const APP_FILES = [
   './',
   'index.html',

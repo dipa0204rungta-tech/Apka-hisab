@@ -130,3 +130,20 @@ test('everyday ways of saying the rate', () => {
   // and in a list
   assert.deepEqual(rate('चावल 2 किलो 60 वाला चीनी 5 किलो 45 के भाव से दाल 1 किलो 120 मैगी 5 पैकेट 14 वाली').map((r) => r[3]), [60, 45, 120, 14]);
 });
+
+test('final price is the amount for the whole line', () => {
+  const rate = (text) => parseMany(text).map(({ cmd }) => {
+    assert.equal(cmd.type, 'add', `${text} -> ${JSON.stringify(cmd)}`);
+    return [cmd.name, cmd.qty, cmd.unit, Math.round(cmd.rate * 100) / 100, cmd.total];
+  });
+  assert.deepEqual(rate('चूड़ा 2 बोरा, 26 kg का final price 1,790 है। चोकर 2 बोरा, final price 2,560। चीनी 2 बोरा, 50 kg का final price 4,600।'), [
+    ['चूड़ा (26 kg)', 2, 'bag', 895, 1790],
+    ['चोकर', 2, 'bag', 1280, 2560],
+    ['चीनी (50 kg)', 2, 'bag', 2300, 4600],
+  ]);
+  assert.deepEqual(rate('चीनी 2 बोरा 50 किलो का फाइनल प्राइस है ₹4600'), [['चीनी (50 kg)', 2, 'bag', 2300, 4600]]);
+  assert.deepEqual(rate('चीनी 2 बोरा 50 किलो कुल 4600 रुपये'), [['चीनी (50 kg)', 2, 'bag', 2300, 4600]]);
+  assert.deepEqual(rate('दाल 2 किलो टोटल 240'), [['दाल', 2, 'kg', 120, 240]]);
+  // "price" alone is still the rate
+  assert.deepEqual(rate('दाल 2 किलो price 120'), [['दाल', 2, 'kg', 120, null]]);
+});

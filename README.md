@@ -56,6 +56,7 @@ in one breath, and “और” / “फिर” / “next” between them is o
 * **What I heard** lists every item: ✓ added (with **Remove**), or ⚠ to check (missing price, unclear rate or total, already on the bill) with **Fix**, **Add as new line** or **Skip**. Nothing is guessed.
 * A list can also be typed or pasted into the “Heard” box, one item per line.
 * **Amount, as on a shop slip:** “चना 5 किलो 325”, “फॉर्च्यून 3 टिन 7290”: a plain amount is the total for the line, and the rate is worked out (₹65/kg, ₹2430/टिन). Say “325 रुपये किलो”, “रेट 325” or “प्रति बोरा” for a rate.
+* **Final price:** “चीनी 2 बोरा, 50 kg का final price 4,600” (also “फाइनल प्राइस”, “कुल”, “टोटल”) is the amount for the whole line: 2 बोरा × ₹2300.
 * **Rate, the everyday way:** “60 वाला”, “14 रुपये वाली”, “45 के भाव से / के हिसाब से / का रेट”, “30 का किलो”, “2000 का बोरा”, “2000 रुपये एक बोरा”, “प्रति किलो 60”, “किलो का 60” are all read as the rate.
 * **Answering the question:** when the app says the rate is missing, the next phrase completes the same item: just the number (“60”, read as the rate), or the name again with the rate (“चावल 60 रुपये किलो”, “चावल का रेट 60”).
 * **“6 इनटू 25 4800”** / “2 x 30” / “2 गुणा 30”: how many × size of each (6 बोरे × 25 kg).

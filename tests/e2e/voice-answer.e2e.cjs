@@ -42,15 +42,19 @@ const mocks = () => {
     'दाल 1 किलो', 'दाल का रेट 120',           // "का रेट"
     'आटा 10 किलो', '40 का किलो',
     'तेल', '2 लीटर', '150 वाला',              // three parts
+    'चूड़ा 2 बोरा', '26 kg का final price 1,790 है',   // the amount after a pause
+    'चोकर 2 बोरा, final price 2,560।',
+    'चीनी 2 बोरा, 50 kg का final price 4,600।',
   ));
   await page.waitForFunction(() => window.__speechQueue.length === 0);
   await page.waitForTimeout(300);
   await page.click('#btn-mic');
 
   const bill = await page.textContent('#bill-rows');
-  assert.equal(await page.locator('#bill-rows tr').count(), 5, bill);
-  // 120 + 225 + 120 + 400 + 300
-  assert.equal(await page.textContent('#t-total'), '₹1,165.00', bill);
+  assert.equal(await page.locator('#bill-rows tr').count(), 8, bill);
+  // 120 + 225 + 120 + 400 + 300 + 1790 + 2560 + 4600
+  assert.equal(await page.textContent('#t-total'), '₹10,115.00', bill);
+  for (const s of ['चूड़ा (26 kg)', '895', 'चोकर', '1,280', 'चीनी (50 kg)', '2,300']) assert.ok(bill.includes(s), `bill missing ${s}: ${bill}`);
   assert.equal(await page.locator('#heard-log .heard-entry.check').count(), 0, await page.textContent('#heard-log'));
   assert.deepEqual(errors, [], 'console errors');
   await browser.close();

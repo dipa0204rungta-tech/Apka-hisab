@@ -887,7 +887,7 @@ for (const [code, words] of Object.entries(UNIT_WORDS)) for (const w of words) U
 const PER_WORDS = nfcSet(['per', 'each', 'प्रति', 'पर', 'पे', 'har', 'हर', 'a', 'an', 'every']);
 const EACH_WORDS = nfcSet(['each', 'every']);
 // "1200 rate" / "1200 रुपये रेट": the rate word after the number
-const RATE_AFTER = nfcSet(['rate', 'रेट', 'भाव', 'bhav', 'bhaav', 'दाम', 'daam', 'price', 'कीमत']);
+const RATE_AFTER = nfcSet(['rate', 'रेट', 'भाव', 'bhav', 'bhaav', 'दाम', 'daam', 'price', 'कीमत', 'प्राइस', 'प्राईस']);
 // "₹2000 करके" / "2000 रुपये के हिसाब से": that price is the rate for each one
 const EACH_AFTER_PRICE = nfcSet(['करके', 'karke', 'हिसाब', 'hisab', 'hisaab', 'each', 'प्रत्येक']);
 const WEIGHT_UNITS = new Set(['kg', 'g', 'l', 'ml']);
@@ -901,7 +901,7 @@ const CONTAINER_UNITS = new Set(['bag', 'tin', 'box', 'packet', 'bottle']);
 const COUNT_UNITS = new Set(['bag', 'pcs', 'packet', 'box', 'bottle', 'dozen', 'tin']);
 // "30 किलो का बोरा": words between a sack's size and the sack
 const BAG_LINK = nfcSet(['ka', 'ki', 'ke', 'का', 'की', 'के', 'of', 'wala', 'wali', 'wale', 'वाला', 'वाली', 'वाले']);
-const RATE_MARKERS = nfcSet(['at', '@', 'rate', 'bhav', 'bhaav', 'भाव', 'दाम', 'daam', 'रेट', 'price', 'कीमत', 'keemat', 'kimat']);
+const RATE_MARKERS = nfcSet(['at', '@', 'rate', 'bhav', 'bhaav', 'भाव', 'दाम', 'daam', 'रेट', 'price', 'प्राइस', 'प्राईस', 'कीमत', 'keemat', 'kimat']);
 const TOTAL_MARKERS_BEFORE = nfcSet(['for', 'total', 'worth', 'in', 'टोटल']);
 const TOTAL_MARKERS_AFTER = nfcSet(['ka', 'ki', 'ke', 'का', 'की', 'के', 'में', 'mein', 'me', 'main', 'total', 'worth']);
 
@@ -910,7 +910,7 @@ const ADD_WORDS = nfcSet(['add', 'jodo', 'एड', 'ऐड', 'plus', 'insert']);
 const REMOVE_WORDS = nfcSet(['remove', 'delete', 'hatao', 'रिमूव', 'डिलीट', 'cancel', 'कैंसल', 'erase']);
 const CHANGE_WORDS = nfcSet(['change', 'update', 'set', 'edit', 'correct', 'make', 'karo', 'badlo', 'बदलो', 'बदल', 'चेंज', 'अपडेट', 'should', 'instead']);
 const QTY_FIELD_WORDS = nfcSet(['quantity', 'qty', 'quantities', 'मात्रा', 'matra', 'maatra', 'वजन', 'वज़न', 'weight', 'क्वांटिटी', 'quantity.']);
-const RATE_FIELD_WORDS = nfcSet(['rate', 'price', 'दाम', 'भाव', 'रेट', 'कीमत', 'keemat', 'kimat', 'daam', 'bhav', 'bhaav', 'cost']);
+const RATE_FIELD_WORDS = nfcSet(['rate', 'price', 'प्राइस', 'दाम', 'भाव', 'रेट', 'कीमत', 'keemat', 'kimat', 'daam', 'bhav', 'bhaav', 'cost']);
 const PERCENT_WORDS = nfcSet(['percent', 'percentage', 'pc.', 'प्रतिशत', 'pratishat', 'परसेंट', 'फीसदी']);
 const LAST_WORDS = nfcSet(['last', 'previous', 'pichla', 'pichhla', 'पिछला', 'आखिरी', 'aakhri', 'akhri', 'लास्ट']);
 const FINISH_WORDS = nfcSet(['print', 'printout', 'save', 'प्रिंट', 'सेव', 'checkout', 'प्रिंटआउट']);
@@ -928,6 +928,8 @@ const STOPWORDS = nfcSet([
 // Multi-word Hindi verb phrases, normalised before tokenising so the "दो"
 // in "कर दो" (= "do it") is not read as the number two.
 const PHRASES = [
+  // "final price 1790", "फाइनल प्राइस है 1790", "कुल रकम 4600": the amount for the whole line
+  [/(?:^|\s)(?:final|फाइनल|फ़ाइनल|फायनल|टोटल|total|कुल|सब मिलाकर|मिलाकर|overall|net|नेट)(?:\s+(?:price|प्राइस|प्राईस|प्राइज़|प्राइज|amount|अमाउंट|रकम|दाम|पैसा|पैसे|बिल|bill|cost|कॉस्ट|rate|रेट))?(?:\s+(?:है|hai|हुआ|hua|होगा|hoga|बना|बनता|बनेगा))?(?=\s|$)/g, ' total '],
   [/(छूट|डिस्काउंट|discount|chhoot|chhut|choot)\s+(दे\s+दो|दो|दीजिए|दीजिये|दें|de\s+do|do|dijiye|dijie|de)(?=\s|$)/g, (_, w) => ` ${w} `],
   [/(कर|हटा|जोड़|जोड|डाल|लगा|निकाल|लिख|दे|बदल)\s+(दो|दीजिए|दीजिये|दें|देना)/g, (_, v) => ` ${v}ो `],
   [/\b(kar|hata|jod|daal|dal|laga|nikal|likh|de|badal)\s+(do|dijiye|dijie|dena|den)\b/g, (_, v) => ` ${v}o `],
@@ -1486,7 +1488,7 @@ __modules['products.js'] = (function () {
 
 const COMMON_ITEMS = [
   // grains, flours, pulses
-  'चावल', 'बासमती', 'आटा', 'मैदा', 'सूजी', 'बेसन', 'पोहा', 'दलिया', 'साबूदाना', 'गेहूं', 'मक्का', 'बाजरा', 'ज्वार',
+  'चावल', 'बासमती', 'आटा', 'मैदा', 'सूजी', 'बेसन', 'पोहा', 'चूड़ा', 'चिउड़ा', 'चोकर', 'मुरमुरा', 'खली', 'दलिया', 'साबूदाना', 'गेहूं', 'मक्का', 'बाजरा', 'ज्वार',
   'दाल', 'अरहर', 'तुअर', 'मूंग', 'उड़द', 'मसूर', 'चना', 'राजमा', 'लोबिया', 'मटर',
   // sugar, oil, dairy
   'चीनी', 'शक्कर', 'गुड़', 'मिश्री', 'नमक', 'तेल', 'घी', 'वनस्पति', 'दूध', 'दही', 'पनीर', 'मक्खन',
