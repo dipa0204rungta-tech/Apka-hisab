@@ -59,3 +59,88 @@ export function listenOnce(lang, handlers) {
   }
   return { stop: () => { try { rec.stop(); } catch { /* already stopped */ } } };
 }
+
+/**
+ * Keep listening until stop() is called, so a whole list can be spoken in
+ * one go. Each pause ends one phrase, which is delivered through onPhrase;
+ * the microphone then restarts by itself. (Short phrases with automatic
+ * restarts behave the same on Android and desktop Chrome, unlike the
+ * browser's own `continuous` mode, which repeats text on Android.)
+ *
+ * handlers: { onInterim(text), onPhrase(text), onError(message), onEnd(reason) }
+ * onEnd reason: 'stopped' | 'silence' | 'error'
+ */
+export function listenContinuous(lang, handlers, { silenceMs = 60000 } = {}) {
+  let stopped = false;
+  let rec = null;
+  let lastHeard = Date.now();
+  let quickEnds = 0;
+  let startedAt = 0;
+  let heardThisTime = false;
+  let lastPhrase = { text: '', at: 0 };
+
+  const finish = (reason) => {
+    if (stopped && reason !== 'stopped') return;
+    stopped = true;
+    handlers.onEnd?.(reason);
+  };
+
+  const start = () => {
+    rec = new Recognition();
+    rec.lang = lang;
+    rec.interimResults = true;
+    rec.continuous = false;
+    rec.maxAlternatives = 1;
+    rec.onresult = (event) => {
+      const result = event.results[event.results.length - 1];
+      const text = (result?.[0]?.transcript || '').trim();
+      if (!text) return;
+      lastHeard = Date.now();
+      heardThisTime = true;
+      if (!result.isFinal) { handlers.onInterim?.(text); return; }
+      // Some phones deliver the same final phrase twice.
+      if (text === lastPhrase.text && Date.now() - lastPhrase.at < 3000) return;
+      lastPhrase = { text, at: Date.now() };
+      handlers.onPhrase?.(text);
+    };
+    rec.onerror = (event) => {
+      if (event.error === 'aborted' || event.error === 'no-speech') return; // silence: keep listening
+      stopped = true;
+      handlers.onError?.(ERROR_MESSAGES[event.error] || `Voice input error: ${event.error}`);
+      handlers.onEnd?.('error');
+    };
+    rec.onend = () => {
+      if (stopped) return;
+      if (Date.now() - lastHeard > silenceMs) { finish('silence'); return; }
+      // If the microphone keeps closing immediately without hearing anything,
+      // stop instead of restarting in a tight loop.
+      quickEnds = !heardThisTime && Date.now() - startedAt < 300 ? quickEnds + 1 : 0;
+      if (quickEnds > 5) {
+        stopped = true;
+        handlers.onError?.('The microphone keeps stopping. Tap the mic to try again, or type the items.');
+        handlers.onEnd?.('error');
+        return;
+      }
+      start();
+    };
+    startedAt = Date.now();
+    heardThisTime = false;
+    try {
+      rec.start();
+    } catch (e) {
+      stopped = true;
+      handlers.onError?.(`Could not start the microphone: ${e.message}`);
+      handlers.onEnd?.('error');
+    }
+  };
+
+  start();
+  return {
+    stop() {
+      if (stopped) return;
+      stopped = true;
+      try { rec?.stop(); } catch { /* already stopped */ }
+      handlers.onEnd?.('stopped');
+    },
+  };
+}

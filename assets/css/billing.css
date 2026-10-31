@@ -84,6 +84,23 @@ body {
 .heard-row { display: flex; gap: 8px; margin-top: 4px; }
 .heard-row input { flex: 1; min-width: 0; }
 
+.heard-row textarea { flex: 1; min-width: 0; min-height: var(--tap); border: 1px solid var(--line); border-radius: 10px; padding: 10px; font: inherit; color: var(--text); background: #fff; resize: vertical; }
+.heard-section { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.heard-head { display: flex; align-items: center; gap: 8px; }
+.heard-head h3 { margin: 0; font-size: .95rem; }
+.heard-summary { color: var(--warn-text); font-weight: 600; font-size: .9rem; margin-right: auto; }
+.heard-log { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; max-height: 50vh; overflow-y: auto; }
+.heard-entry { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border-radius: 10px; background: var(--ok-bg); }
+.heard-entry.check { background: var(--warn-bg); }
+.heard-entry.done { background: transparent; border: 1px dashed var(--line); color: var(--muted); }
+.he-icon { font-weight: 700; width: 1.2em; flex: none; text-align: center; }
+.heard-entry.ok .he-icon { color: var(--ok-text); }
+.heard-entry.check .he-icon { color: var(--warn-text); }
+.he-body { flex: 1; min-width: 0; }
+.he-said { font-size: .85rem; color: var(--muted); word-break: break-word; }
+.he-msg { font-size: .95rem; }
+.heard-entry.check .he-msg { color: var(--warn-text); font-weight: 600; }
+.he-body .fb-actions { margin-top: 6px; }
 .feedback { margin-top: 10px; padding: 10px 12px; border-radius: 10px; font-size: .95rem; }
 .feedback.ok { background: var(--ok-bg); color: var(--ok-text); }
 .feedback.ask { background: var(--warn-bg); color: var(--warn-text); }

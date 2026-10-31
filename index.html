@@ -49,15 +49,23 @@
           <span class="mic-icon" aria-hidden="true">🎤</span>
           <span class="mic-label" id="mic-label">Tap to speak</span>
         </button>
-        <p class="hint" id="voice-hint">Say: “Add two kilos of rice at 60 rupees per kilo” or “दो किलो चावल 60 रुपये किलो”.</p>
+        <p class="hint" id="voice-hint">Tap once and say all the items, with a short pause after each, e.g. “चावल 5 किलो 40 रुपये किलो … दाल 30 किलो का बोरा 2000 रुपये बोरा 3 करके”. Tap again, or say “print the bill”, when done.</p>
         <form class="heard" id="heard-form" autocomplete="off">
-          <label for="heard-text">Heard (you can correct it or type a command)</label>
+          <label for="heard-text">Heard (you can correct it, or type or paste a list)</label>
           <div class="heard-row">
-            <input type="text" id="heard-text" placeholder="Recognised text appears here">
+            <textarea id="heard-text" rows="2" placeholder="Recognised text appears here"></textarea>
             <button type="submit" class="btn">Apply</button>
           </div>
         </form>
         <div class="feedback" id="feedback" aria-live="polite" hidden></div>
+        <div class="heard-section" id="heard-section" hidden>
+          <div class="heard-head">
+            <h3>What I heard</h3>
+            <span class="heard-summary" id="heard-summary"></span>
+            <button type="button" class="btn btn-small btn-ghost" id="btn-clear-heard">Clear list</button>
+          </div>
+          <ol class="heard-log" id="heard-log" aria-live="polite"></ol>
+        </div>
       </section>
 
       <section class="card manual" aria-labelledby="manual-title">
@@ -77,6 +85,7 @@
               <option value="packet">packet</option>
               <option value="bottle">bottle</option>
               <option value="box">box</option>
+              <option value="bag">बोरा (bag)</option>
             </select>
           </label>
           <label class="field f-rate"><span>Rate ₹</span><input type="text" inputmode="decimal" id="f-rate" required></label>

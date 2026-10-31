@@ -115,6 +115,11 @@ test('a discount larger than a reduced subtotal blocks saving', () => {
   assert.ok(validateBillForSave(createBill()).length > 0);
 });
 
+test('display names keep a sack size in brackets as said', () => {
+  const bill = billWith({ name: 'atta (10 kg)', qty: 2, unit: 'bag', rate: 400 });
+  assert.equal(bill.items[0].name, 'Atta (10 kg)');
+});
+
 test('find items by spoken name', () => {
   const bill = billWith({ name: 'Mustard Oil', qty: 1, unit: 'l', rate: 180 }, { name: 'Rice', qty: 1, rate: 60 }, { name: 'Basmati Rice', qty: 1, rate: 120 });
   assert.equal(findItemsByName(bill, 'oil').length, 1);

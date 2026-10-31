@@ -2,9 +2,9 @@ import {
   createBill, addItem, updateItem, removeItem, setDiscount, computeTotals, validateBillForSave,
   validateItemFields, findItemsByName, convertQuantity, itemAmount, formatMoney, formatQty, unitLabel, round3,
 } from './bill.js';
-import { parseCommand } from './voice-parser.js';
+import { parseMany } from './voice-parser.js';
 import { normaliseDigits } from './numbers.js';
-import { speechSupport, listenOnce } from './speech.js';
+import { speechSupport, listenContinuous } from './speech.js';
 import { LocalBillStore, DEFAULT_SETTINGS } from './storage.js';
 import { buildReceipt, renderReceiptHtml } from './receipt.js';
 import { getPrinter, bluetoothPrinter } from './printers.js';
@@ -41,6 +41,7 @@ function parseInputNumber(value) {
 }
 
 function showFeedback(kind, text, actions = []) {
+  state.lastFeedback = { kind, text };
   const box = $('feedback');
   box.replaceChildren();
   box.className = `feedback ${kind}`;
@@ -220,22 +221,202 @@ function applyCommand(cmd) {
   }
 }
 
-function processText(text) {
-  const cmd = parseCommand(text);
+// ------------------------------------------------------ what I heard (list)
+
+function logHeard(said, kind, message, actions = []) {
+  const li = document.createElement('li');
+  li.className = `heard-entry ${kind}`;
+  const icon = document.createElement('span');
+  icon.className = 'he-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  const body = document.createElement('div');
+  body.className = 'he-body';
+  const saidEl = document.createElement('div');
+  saidEl.className = 'he-said';
+  saidEl.textContent = `“${said}”`;
+  const msg = document.createElement('div');
+  msg.className = 'he-msg';
+  body.append(saidEl, msg);
+  li.append(icon, body);
+  setEntry(li, kind, message, actions);
+  $('heard-log').append(li);
+  $('heard-section').hidden = false;
+  updateHeardSummary();
+  li.scrollIntoView({ block: 'nearest' });
+  return li;
+}
+
+/** Update one entry: ok = added, check = needs the shopkeeper, done = handled. */
+function setEntry(li, kind, message, actions = []) {
+  li.className = `heard-entry ${kind}`;
+  li.querySelector('.he-icon').textContent = kind === 'check' ? '⚠' : kind === 'ok' ? '✓' : '–';
+  li.querySelector('.he-msg').textContent = message;
+  li.querySelector('.fb-actions')?.remove();
+  if (actions.length) {
+    const row = document.createElement('div');
+    row.className = 'fb-actions';
+    for (const a of actions) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `btn btn-small${a.primary ? ' btn-primary' : ''}`;
+      btn.textContent = a.label;
+      btn.addEventListener('click', () => a.onClick(li), { once: true });
+      row.append(btn);
+    }
+    li.querySelector('.he-body').append(row);
+  }
+  updateHeardSummary();
+}
+
+function updateHeardSummary() {
+  const n = $('heard-log').querySelectorAll('.heard-entry.check').length;
+  $('heard-summary').textContent = n ? `${n} to check` : '';
+}
+
+function clearHeardLog() {
+  $('heard-log').replaceChildren();
+  $('heard-section').hidden = true;
+  state.fixEntry = null;
+}
+
+function removeAction(itemId) {
+  return {
+    label: 'Remove',
+    onClick: (li) => {
+      const r = removeItem(state.bill, itemId);
+      if (!r.ok || state.saved) { setEntry(li, 'done', 'Already removed.'); return; }
+      commit(r.bill, 'remove');
+      setEntry(li, 'done', `Removed ${r.item.name}.`);
+    },
+  };
+}
+
+function fixAction(partial, reason) {
+  return {
+    label: 'Fix',
+    primary: true,
+    onClick: (li) => {
+      prefillForm(partial, reason);
+      state.fixEntry = li;
+      setEntry(li, 'check', 'Fix it in “Add item manually” below, then tap Add item.', [skipAction()]);
+      $('item-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    },
+  };
+}
+
+function skipAction() {
+  return { label: 'Skip', onClick: (li) => { if (state.fixEntry === li) state.fixEntry = null; setEntry(li, 'done', 'Skipped. Not added to the bill.'); } };
+}
+
+/** Add one item from a list without stopping to ask; problems go to the list. */
+function addFromList(cmd, said) {
+  const fields = { name: cmd.name, qty: round3(cmd.qty), unit: cmd.unit, rate: cmd.rate };
+  const problems = validateItemFields(fields);
+  if (problems.length) {
+    logHeard(said, 'check', problems.join(' '), [fixAction(fields), skipAction()]);
+    return false;
+  }
+  const r = addItem(state.bill, fields);
+  if (r.ok) {
+    commit(r.bill, 'add');
+    flashRow(r.item.id);
+    logHeard(said, 'ok', `Added ${describeItem(r.item)}`, [removeAction(r.item.id)]);
+    return true;
+  }
+  if (r.code === 'duplicate') {
+    logHeard(said, 'check', `${r.existing.name} is already on the bill (${describeItem(r.existing)}).`, [
+      {
+        label: 'Add as new line',
+        primary: true,
+        onClick: (li) => {
+          const again = addItem(state.bill, fields, { allowDuplicate: true });
+          if (!again.ok || state.saved) { setEntry(li, 'done', 'Not added.'); return; }
+          commit(again.bill, 'add');
+          setEntry(li, 'ok', `Added ${describeItem(again.item)}`, [removeAction(again.item.id)]);
+        },
+      },
+      skipAction(),
+    ]);
+    return false;
+  }
+  logHeard(said, 'check', r.errors.join(' '), [fixAction(fields), skipAction()]);
+  return false;
+}
+
+/**
+ * Handle everything said (or typed) in one go: one item, a list of 15-20
+ * items, or a command such as remove, discount or "print the bill".
+ */
+function handleSpeech(text) {
   if (state.saving) {
     showFeedback('ask', 'Please wait, this bill is being saved.');
     return;
   }
-  if (state.saved) {
-    if (cmd.type === 'finish') { openPrintPreview(state.saved); return; }
-    // The last bill is already saved, so nothing is lost: a new item starts the next bill.
-    if (cmd.type !== 'add') {
-      showFeedback('ask', 'This bill is already saved. Say a new item to start the next bill, or tap “New Bill”.');
-      return;
+  const results = parseMany(text);
+  if (!results.length) return;
+  const many = results.length > 1;
+  let added = 0;
+  let toCheck = 0;
+
+  for (const { text: said, cmd } of results) {
+    if (state.saved) {
+      if (cmd.type === 'finish') { stopListening(); openPrintPreview(state.saved); continue; }
+      // The last bill is already saved, so nothing is lost: a new item starts the next bill.
+      if (cmd.type !== 'add' && cmd.type !== 'error') {
+        showFeedback('ask', 'This bill is already saved. Say a new item to start the next bill, or tap “New Bill”.');
+        continue;
+      }
+      startFreshBill();
     }
-    startFreshBill();
+    if (cmd.type === 'finish') {
+      stopListening();
+      applyCommand(cmd);
+      continue;
+    }
+    if (cmd.type === 'add') {
+      const ok = addFromList(cmd, said);
+      if (ok) added++; else toCheck++;
+      if (!many) {
+        const entry = $('heard-log').lastElementChild;
+        const note = ok && cmd.priceMode === 'total' ? ` (₹${formatMoney(cmd.total)} total)` : '';
+        const msg = entry.querySelector('.he-msg').textContent;
+        if (ok) showFeedback('ok', `${msg}${note}`, undoAction());
+        else showFeedback('ask', `${msg} See “What I heard” below.`);
+      }
+      continue;
+    }
+    if (many && cmd.type === 'error') {
+      logHeard(said, 'check', cmd.message, cmd.partial ? [fixAction(cmd.partial, cmd.reason), skipAction()] : [skipAction()]);
+      toCheck++;
+      continue;
+    }
+
+    // A single item or command: same behaviour as before, plus a line in the list.
+    const before = new Set(state.bill.items.map((it) => it.id));
+    applyCommand(cmd);
+    const newItem = state.bill.items.find((it) => !before.has(it.id));
+    const fb = state.lastFeedback || { kind: 'ok', text: '' };
+    if (newItem) {
+      logHeard(said, 'ok', `Added ${describeItem(newItem)}`, [removeAction(newItem.id)]);
+    } else if (cmd.type === 'error') {
+      // The form is already filled in with what was understood.
+      const li = logHeard(said, 'check', cmd.message, cmd.partial ? [fixAction(cmd.partial, cmd.reason), skipAction()] : [skipAction()]);
+      if (cmd.partial) state.fixEntry = li;
+    } else {
+      logHeard(said, fb.kind === 'ok' ? 'ok' : 'check', fb.text);
+    }
   }
-  applyCommand(cmd);
+
+  if (many) {
+    const parts = [];
+    if (added) parts.push(`Added ${added} item${added === 1 ? '' : 's'}.`);
+    if (toCheck) parts.push(`${toCheck} need${toCheck === 1 ? 's' : ''} checking: see “What I heard” below.`);
+    if (parts.length) showFeedback(toCheck ? 'ask' : 'ok', `${parts.join(' ')} Total ${money(computeTotals(state.bill).grandTotal)}.`);
+  }
+}
+
+function stopListening() {
+  state.listener?.stop();
 }
 
 // ------------------------------------------------------------- printing
@@ -310,13 +491,6 @@ function testPrint() {
   printOnBluetooth(sample, 'Test receipt sent. If nothing printed, check paper and that the printer is on.');
 }
 
-/** Prefer the top alternative; fall back to another one only if the top one cannot be understood. */
-function pickAlternative(alternatives) {
-  if (!alternatives.length) return '';
-  if (parseCommand(alternatives[0]).type !== 'error') return alternatives[0];
-  return alternatives.slice(1).find((a) => parseCommand(a).type !== 'error') ?? alternatives[0];
-}
-
 // ------------------------------------------------------------- voice input
 
 function setupVoice() {
@@ -329,26 +503,26 @@ function setupVoice() {
     return;
   }
   mic.addEventListener('click', () => {
-    if (state.listener) { state.listener.stop(); return; }
+    if (state.listener) { stopListening(); return; }
     hideFeedback();
     $('heard-text').value = '';
     mic.classList.add('listening');
     mic.setAttribute('aria-pressed', 'true');
     $('mic-label').textContent = 'Listening… tap to stop';
-    state.listener = listenOnce($('voice-lang').value, {
+    // Keeps listening through pauses, so a whole list can be spoken in one go.
+    state.listener = listenContinuous($('voice-lang').value, {
       onInterim: (text) => { $('heard-text').value = text; },
-      onResult: (alternatives) => {
-        const chosen = pickAlternative(alternatives);
-        $('heard-text').value = chosen;
-        if (chosen) processText(chosen);
-        else showFeedback('ask', 'I did not hear anything. Please try again.');
+      onPhrase: (text) => {
+        $('heard-text').value = text;
+        handleSpeech(text);
       },
       onError: (message) => showFeedback('error', message),
-      onEnd: () => {
+      onEnd: (reason) => {
         state.listener = null;
         mic.classList.remove('listening');
         mic.setAttribute('aria-pressed', 'false');
         $('mic-label').textContent = 'Tap to speak';
+        if (reason === 'silence') showFeedback('ask', 'Stopped listening after 1 minute of silence. Tap the mic to continue.');
       },
     });
   });
@@ -425,6 +599,10 @@ function onFormSubmit(event) {
   const r = tryAdd(fields);
   if (r.ok) {
     clearForm();
+    if (state.fixEntry) {
+      setEntry(state.fixEntry, 'ok', `Added after fixing: ${describeItem(r.item)}`, [removeAction(r.item.id)]);
+      state.fixEntry = null;
+    }
     showFeedback('ok', `Added ${describeItem(r.item)}`, undoAction());
     $('f-name').focus();
   }
@@ -531,7 +709,7 @@ function render() {
     el.disabled = locked;
   }
   const busy = state.saving;
-  for (const el of $('heard-form').querySelectorAll('input, button')) el.disabled = busy;
+  for (const el of $('heard-form').querySelectorAll('textarea, button')) el.disabled = busy;
   if (speechSupport().supported) $('btn-mic').disabled = busy;
 
   $('btn-save').disabled = locked || !store || busy;
@@ -576,6 +754,7 @@ async function renderHistory() {
 
 function openReview({ spoken = false } = {}) {
   if (state.saved || !store || state.saving) return;
+  stopListening();
   state.bill = { ...state.bill, customerName: $('customer-name').value.trim() };
   const errors = validateBillForSave(state.bill);
   if (errors.length) {
@@ -705,6 +884,7 @@ async function newBill() {
 }
 
 function startFreshBill() {
+  clearHeardLog();
   state.bill = createBill();
   state.saved = null;
   state.undo = null;
@@ -763,8 +943,13 @@ async function init() {
   $('heard-form').addEventListener('submit', (e) => {
     e.preventDefault();
     const text = $('heard-text').value.trim();
-    if (text) processText(text);
+    if (text) handleSpeech(text);
   });
+  // Enter applies, Shift+Enter starts a new line (a typed or pasted list)
+  $('heard-text').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('heard-form').requestSubmit(); }
+  });
+  $('btn-clear-heard').addEventListener('click', clearHeardLog);
   $('item-form').addEventListener('submit', onFormSubmit);
   $('item-form').addEventListener('input', updateAmountPreview);
   $('btn-cancel-edit').addEventListener('click', () => { clearForm(); render(); });

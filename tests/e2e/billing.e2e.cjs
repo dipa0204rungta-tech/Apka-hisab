@@ -10,20 +10,23 @@ const mockSpeech = () => {
   window.__speechQueue = [];
   window.__printed = [];
   window.print = () => { window.__printed.push(document.getElementById('print-root').innerHTML); };
+  // Behaves like the browser: each start() hears the next queued phrase (or
+  // stays quiet), then ends; the app restarts it until the mic is tapped off.
   class FakeRecognition {
     start() {
       const next = window.__speechQueue.shift();
+      if (next === undefined) { this.idle = true; return; }
       setTimeout(() => {
         if (next && next.error) { this.onerror?.({ error: next.error }); this.onend?.(); return; }
-        const alts = (Array.isArray(next) ? next : [next]).map((t) => ({ transcript: t }));
-        this.onresult?.({ results: [{ isFinal: false, length: 1, 0: { transcript: alts[0].transcript.slice(0, 5) } }] });
-        const res = Object.assign([...alts], { isFinal: true });
+        const text = Array.isArray(next) ? next[0] : next;
+        this.onresult?.({ results: [Object.assign([{ transcript: text.slice(0, 5) }], { isFinal: false })] });
+        const res = Object.assign([{ transcript: text }], { isFinal: true });
         this.onresult?.({ results: [res] });
         this.onresult?.({ results: [res] }); // duplicate final event, must be ignored
         this.onend?.();
       }, 30);
     }
-    stop() {}
+    stop() { if (this.idle) setTimeout(() => this.onend?.(), 10); }
   }
   window.webkitSpeechRecognition = FakeRecognition;
   window.SpeechRecognition = FakeRecognition;
@@ -39,9 +42,13 @@ const mockSpeech = () => {
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(URL);
 
-  const say = async (...alts) => {
-    await page.evaluate((a) => window.__speechQueue.push(a.length === 1 ? a[0] : a), alts);
-    await page.click('#btn-mic');
+  // Tap the mic, speak the phrases (with pauses between them), tap the mic off.
+  const say = async (...phrases) => {
+    await page.evaluate((a) => window.__speechQueue.push(...a), phrases);
+    if (!(await page.evaluate(() => document.getElementById('btn-mic').classList.contains('listening')))) await page.click('#btn-mic');
+    await page.waitForFunction(() => window.__speechQueue.length === 0);
+    await page.waitForTimeout(120);
+    if (await page.evaluate(() => document.getElementById('btn-mic').classList.contains('listening'))) await page.click('#btn-mic');
     await page.waitForFunction(() => !document.getElementById('btn-mic').classList.contains('listening'));
   };
   const total = () => page.textContent('#t-total');
@@ -82,9 +89,13 @@ const mockSpeech = () => {
   assert.equal(await total(), '₹410.00');
 
   // Missing price via voice, alternatives: second alt is complete
-  await say('add half kilo tea', 'add half kilo tea at 480 per kilo');
+  await say('add half kilo tea');
+  assert.match(await fb(), /What is the price of tea/);
+  await say('add half kilo tea at 480 per kilo');
   assert.equal(await page.inputValue('#heard-text'), 'add half kilo tea at 480 per kilo');
   assert.equal(await total(), '₹650.00');
+  await page.click('#btn-cancel-edit').catch(() => {});
+  await page.evaluate(() => { for (const id of ['f-name', 'f-qty', 'f-rate']) document.getElementById(id).value = ''; });
 
   // Manual decimal entry + validation
   await page.fill('#f-name', 'Ghee');
@@ -119,10 +130,10 @@ const mockSpeech = () => {
   assert.equal(await total(), '₹910.38');
 
   // Speech errors
-  await page.evaluate(() => window.__speechQueue.push({ error: 'no-speech' }));
+  await page.evaluate(() => window.__speechQueue.push({ error: 'not-allowed' }));
   await page.click('#btn-mic');
-  await page.waitForTimeout(100);
-  assert.match(await fb(), /No speech was heard/);
+  await page.waitForFunction(() => !document.getElementById('btn-mic').classList.contains('listening'));
+  assert.match(await fb(), /Microphone permission was denied/);
   // Saying "print the bill" only opens the review; nothing prints or saves
   await say('print the bill');
   assert.ok(await page.isVisible('#dlg-review'));

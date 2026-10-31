@@ -16,6 +16,7 @@ export const UNITS = {
   packet: { label: 'packet', base: 'packet', factor: 1 },
   bottle: { label: 'bottle', base: 'bottle', factor: 1 },
   box: { label: 'box', base: 'box', factor: 1 },
+  bag: { label: 'बोरा', base: 'bag', factor: 1 }, // sack; its size goes in the item name
 };
 
 /** Round to paise without the usual floating point surprises (1.005 -> 1.01). */
@@ -84,10 +85,12 @@ export function nameKey(name) {
 
 /** Title case Latin words, leave Devanagari alone. */
 export function displayName(name) {
-  return String(name)
-    .trim()
-    .replace(/\s+/g, ' ')
-    .replace(/(^|\s)([a-z])/g, (_, sp, c) => sp + c.toUpperCase());
+  const clean = String(name).trim().replace(/\s+/g, ' ');
+  // Title-case the name but leave a bracketed detail such as "(30 kg)" as it is.
+  const cut = clean.indexOf(' (');
+  const main = cut === -1 ? clean : clean.slice(0, cut);
+  const rest = cut === -1 ? '' : clean.slice(cut);
+  return main.replace(/(^|\s)([a-z])/g, (_, sp, c) => sp + c.toUpperCase()) + rest;
 }
 
 export function newId() {

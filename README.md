@@ -12,7 +12,9 @@ Check the bill, tap **Print Bill**, and the receipt prints on a 58 mm or 80 mm t
    - Android Chrome: tap ⋮, then **Add to Home screen** (or **Install app**).
    - iPhone Safari: tap the Share button, then **Add to Home Screen**.
 3. Open it from the home-screen icon. After the first visit it also works without internet.
-4. Allow microphone access, tap the mic and speak, for example
+4. Allow microphone access and tap the mic **once**. It keeps listening, so you can say
+   the whole list (15-20 items) with a short pause after each item. Tap the mic again,
+   or say “print the bill”, when you are done. For example
    “Add two kilos of rice at 60 rupees per kilo” or “दो किलो चावल 60 रुपये किलो”.
 5. When the bill is ready, tap **Review & Print Bill** (or say “print the bill”),
    check it, and tap **Print Bill**.
@@ -39,6 +41,20 @@ npm run test:e2e # browser tests (needs Playwright + Chromium and `npm start` ru
 
 To publish a change: run the tests, commit to `main`, then push `main` to
 both `main` and `gh-pages` (`git push origin main main:gh-pages`).
+
+## Speaking a whole list
+
+Tap the mic once; it keeps listening through pauses until you tap it again,
+say “print the bill”, or stay silent for a minute. Several items can be said
+in one breath, and “और” / “फिर” / “next” between them is optional:
+
+> चावल 5 किलो 40 रुपये किलो, दाल 30 किलो का बोरा 2000 रुपये प्रति बोरा 3 करके,
+> मिर्ची 500 ग्राम 200 रुपये किलो, चीनी 25 किलो का बोरा 4 बोरा 1200 रेट …
+
+* Sacks: “30 किलो का बोरा … 3 करके” → *दाल (30 kg)*, 3 बोरा. “2 बोरा 25 किलो का, 40 रुपये किलो” → 50 kg at ₹40.
+* Grams at a per-kilo rate are converted: “मिर्ची 500 ग्राम 200 रुपये किलो” → 0.5 kg × ₹200.
+* **What I heard** lists every item: ✓ added (with **Remove**), or ⚠ to check (missing price, unclear rate or total, already on the bill) with **Fix**, **Add as new line** or **Skip**. Nothing is guessed.
+* A list can also be typed or pasted into the “Heard” box, one item per line.
 
 ## Voice commands
 

@@ -94,6 +94,23 @@ body {
 .heard-row { display: flex; gap: 8px; margin-top: 4px; }
 .heard-row input { flex: 1; min-width: 0; }
 
+.heard-row textarea { flex: 1; min-width: 0; min-height: var(--tap); border: 1px solid var(--line); border-radius: 10px; padding: 10px; font: inherit; color: var(--text); background: #fff; resize: vertical; }
+.heard-section { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.heard-head { display: flex; align-items: center; gap: 8px; }
+.heard-head h3 { margin: 0; font-size: .95rem; }
+.heard-summary { color: var(--warn-text); font-weight: 600; font-size: .9rem; margin-right: auto; }
+.heard-log { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; max-height: 50vh; overflow-y: auto; }
+.heard-entry { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border-radius: 10px; background: var(--ok-bg); }
+.heard-entry.check { background: var(--warn-bg); }
+.heard-entry.done { background: transparent; border: 1px dashed var(--line); color: var(--muted); }
+.he-icon { font-weight: 700; width: 1.2em; flex: none; text-align: center; }
+.heard-entry.ok .he-icon { color: var(--ok-text); }
+.heard-entry.check .he-icon { color: var(--warn-text); }
+.he-body { flex: 1; min-width: 0; }
+.he-said { font-size: .85rem; color: var(--muted); word-break: break-word; }
+.he-msg { font-size: .95rem; }
+.heard-entry.check .he-msg { color: var(--warn-text); font-weight: 600; }
+.he-body .fb-actions { margin-top: 6px; }
 .feedback { margin-top: 10px; padding: 10px 12px; border-radius: 10px; font-size: .95rem; }
 .feedback.ok { background: var(--ok-bg); color: var(--ok-text); }
 .feedback.ask { background: var(--warn-bg); color: var(--warn-text); }
@@ -238,15 +255,23 @@ body {
           <span class="mic-icon" aria-hidden="true">🎤</span>
           <span class="mic-label" id="mic-label">Tap to speak</span>
         </button>
-        <p class="hint" id="voice-hint">Say: “Add two kilos of rice at 60 rupees per kilo” or “दो किलो चावल 60 रुपये किलो”.</p>
+        <p class="hint" id="voice-hint">Tap once and say all the items, with a short pause after each, e.g. “चावल 5 किलो 40 रुपये किलो … दाल 30 किलो का बोरा 2000 रुपये बोरा 3 करके”. Tap again, or say “print the bill”, when done.</p>
         <form class="heard" id="heard-form" autocomplete="off">
-          <label for="heard-text">Heard (you can correct it or type a command)</label>
+          <label for="heard-text">Heard (you can correct it, or type or paste a list)</label>
           <div class="heard-row">
-            <input type="text" id="heard-text" placeholder="Recognised text appears here">
+            <textarea id="heard-text" rows="2" placeholder="Recognised text appears here"></textarea>
             <button type="submit" class="btn">Apply</button>
           </div>
         </form>
         <div class="feedback" id="feedback" aria-live="polite" hidden></div>
+        <div class="heard-section" id="heard-section" hidden>
+          <div class="heard-head">
+            <h3>What I heard</h3>
+            <span class="heard-summary" id="heard-summary"></span>
+            <button type="button" class="btn btn-small btn-ghost" id="btn-clear-heard">Clear list</button>
+          </div>
+          <ol class="heard-log" id="heard-log" aria-live="polite"></ol>
+        </div>
       </section>
 
       <section class="card manual" aria-labelledby="manual-title">
@@ -266,6 +291,7 @@ body {
               <option value="packet">packet</option>
               <option value="bottle">bottle</option>
               <option value="box">box</option>
+              <option value="bag">बोरा (bag)</option>
             </select>
           </label>
           <label class="field f-rate"><span>Rate ₹</span><input type="text" inputmode="decimal" id="f-rate" required></label>
@@ -414,6 +440,7 @@ const UNITS = {
   packet: { label: 'packet', base: 'packet', factor: 1 },
   bottle: { label: 'bottle', base: 'bottle', factor: 1 },
   box: { label: 'box', base: 'box', factor: 1 },
+  bag: { label: 'बोरा', base: 'bag', factor: 1 }, // sack; its size goes in the item name
 };
 
 /** Round to paise without the usual floating point surprises (1.005 -> 1.01). */
@@ -482,10 +509,12 @@ function nameKey(name) {
 
 /** Title case Latin words, leave Devanagari alone. */
 function displayName(name) {
-  return String(name)
-    .trim()
-    .replace(/\s+/g, ' ')
-    .replace(/(^|\s)([a-z])/g, (_, sp, c) => sp + c.toUpperCase());
+  const clean = String(name).trim().replace(/\s+/g, ' ');
+  // Title-case the name but leave a bracketed detail such as "(30 kg)" as it is.
+  const cut = clean.indexOf(' (');
+  const main = cut === -1 ? clean : clean.slice(0, cut);
+  const rest = cut === -1 ? '' : clean.slice(cut);
+  return main.replace(/(^|\s)([a-z])/g, (_, sp, c) => sp + c.toUpperCase()) + rest;
 }
 
 function newId() {
@@ -823,7 +852,7 @@ __modules['voice-parser.js'] = (function () {
 // parts it did understand, so the UI can ask the user to correct it.
 
 const { normaliseDigits, wordsToNumbers } = __modules['numbers.js'];
-const { convertQuantity, unitLabel } = __modules['bill.js'];
+const { convertQuantity, unitLabel, formatQty } = __modules['bill.js'];
 
 const nfcSet = (words) => new Set(words.map((w) => w.normalize('NFC')));
 const nfcMap = (pairs) => new Map(pairs.map(([k, v]) => [k.normalize('NFC'), v]));
@@ -843,12 +872,17 @@ const UNIT_WORDS = {
   packet: ['packet', 'packets', 'pack', 'packs', 'pkt', 'pkts', 'पैकेट', 'पैकिट'],
   bottle: ['bottle', 'bottles', 'बोतल'],
   box: ['box', 'boxes', 'dibba', 'डिब्बा', 'डिब्बे'],
+  bag: ['bag', 'bags', 'sack', 'sacks', 'bora', 'bore', 'bori', 'boriya', 'katta', 'katte', 'बोरा', 'बोरे', 'बोरी', 'बोरिया', 'बोरियां', 'कट्टा', 'कट्टे'],
 };
 const UNIT_LOOKUP = new Map();
 for (const [code, words] of Object.entries(UNIT_WORDS)) for (const w of words) UNIT_LOOKUP.set(w.normalize('NFC'), code);
 
-const PER_WORDS = nfcSet(['per', 'each', 'प्रति', 'har', 'हर', 'a', 'an', 'every']);
+const PER_WORDS = nfcSet(['per', 'each', 'प्रति', 'पर', 'पे', 'har', 'हर', 'a', 'an', 'every']);
 const EACH_WORDS = nfcSet(['each', 'every']);
+// "1200 rate" / "1200 रुपये रेट": the rate word after the number
+const RATE_AFTER = nfcSet(['rate', 'रेट', 'भाव', 'bhav', 'bhaav', 'दाम', 'daam', 'price', 'कीमत']);
+// "30 किलो का बोरा": words between a sack's size and the sack
+const BAG_LINK = nfcSet(['ka', 'ki', 'ke', 'का', 'की', 'के', 'of', 'wala', 'wali', 'wale', 'वाला', 'वाली', 'वाले']);
 const RATE_MARKERS = nfcSet(['at', '@', 'rate', 'bhav', 'bhaav', 'भाव', 'दाम', 'daam', 'रेट', 'price', 'कीमत', 'keemat', 'kimat']);
 const TOTAL_MARKERS_BEFORE = nfcSet(['for', 'total', 'worth', 'in', 'टोटल']);
 const TOTAL_MARKERS_AFTER = nfcSet(['ka', 'ki', 'ke', 'का', 'की', 'के', 'में', 'mein', 'me', 'main', 'total', 'worth']);
@@ -870,7 +904,7 @@ const STOPWORDS = nfcSet([
   'aur', 'और', 'bhi', 'भी', 'is', 'ko', 'को', 'it', 'its', 'my', 'this', 'that', 'be', 'should', 'make',
   'set', 'karo', 'kar', 'कर', 'करो', 'hai', 'है', 'प्रति', 'har', 'हर', 'line', 'entry', 'lagao', 'jodo',
   'hatao', 'ji', 'जी', 'now', 'abhi', 'अभी', 'then', 'by', 'off', 'apply', 'give', 'want', 'i', 'we',
-  '@', 'rate', 'price', 'rs', 'cost', 'only', 'sirf', 'सिर्फ',
+  '@', 'rate', 'price', 'rs', 'cost', 'only', 'sirf', 'सिर्फ', 'करके', 'karke', 'करके', 'कर', 'पर', 'पे', 'वो', 'ये', 'यह',
 ]);
 
 // Multi-word Hindi verb phrases, normalised before tokenising so the "दो"
@@ -921,10 +955,10 @@ function err(message, extra = {}) {
 }
 
 /** Find a price expression. Returns { price, mode: 'rate'|'total'|'unknown', rateUnit, used:Set } or null. */
-function findPrices(tokens) {
+function findPrices(tokens, skip = new Set()) {
   const found = [];
   tokens.forEach((tok, i) => {
-    if (tok.kind !== 'num') return;
+    if (tok.kind !== 'num' || skip.has(i)) return;
     const prev = tokens[i - 1];
     const next = tokens[i + 1];
     let j = i + 1;
@@ -947,14 +981,23 @@ function findPrices(tokens) {
       found.push({ price: tok.value, mode: 'rate', rateUnit, each: EACH_WORDS.has(after.t), used, index: i });
       return;
     }
+    // "1200 rate", "1200 रुपये रेट", "40 रुपये भाव"
+    if (after && RATE_AFTER.has(after.t)) {
+      used.add(j);
+      found.push({ price: tok.value, mode: 'rate', rateUnit: null, used, index: i });
+      return;
+    }
     // "60 रुपये किलो" / "60 rupees kilo"
     if (hasRs && after?.kind === 'unit') {
       used.add(j);
       found.push({ price: tok.value, mode: 'rate', rateUnit: after.unit, used, index: i });
       return;
     }
-    const before = prev?.kind === 'rs' ? tokens[i - 2] : prev;
-    if (before && RATE_MARKERS.has(before.t) && (hasRs || next?.kind !== 'unit')) {
+    const beforeIndex = prev?.kind === 'rs' ? i - 2 : i - 1;
+    const before = tokens[beforeIndex];
+    // "1200 रेट 4": रेट belongs to 1200, so 4 is not a second price
+    const markerTaken = tokens[beforeIndex - 1]?.kind === 'num' || tokens[beforeIndex - 1]?.kind === 'rs';
+    if (before && RATE_MARKERS.has(before.t) && !(RATE_AFTER.has(before.t) && markerTaken) && (hasRs || next?.kind !== 'unit')) {
       found.push({ price: tok.value, mode: 'rate', rateUnit: null, used, index: i });
       return;
     }
@@ -971,6 +1014,41 @@ function findPrices(tokens) {
     }
   });
   return found;
+}
+
+/**
+ * Find the size of a sack: "30 किलो का बोरा", "25 kg bag". The size describes
+ * the sack; it is not the quantity being bought.
+ */
+function findBag(tokens) {
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
+    const unit = tokens[i + 1];
+    if (tok.kind !== 'num' || unit?.kind !== 'unit' || !['kg', 'g', 'l', 'ml'].includes(unit.unit)) continue;
+    let j = i + 2;
+    if (tokens[j] && BAG_LINK.has(tokens[j].t)) j++;
+    if (tokens[j]?.kind === 'unit' && tokens[j].unit === 'bag') {
+      const used = new Set();
+      for (let k = i; k <= j; k++) used.add(k);
+      // "4 बोरा" right after is the count of sacks, so leave the sack word for it
+      // only when a separate count is not spoken ("30 किलो का बोरा 2000 रुपये बोरा 3")
+      return { size: tok.value, unit: unit.unit, used };
+    }
+  }
+  // "2 बोरा 25 किलो का" / "2 bags of 25 kg": the size follows the count
+  for (let i = 1; i < tokens.length; i++) {
+    if (tokens[i].kind !== 'unit' || tokens[i].unit !== 'bag' || tokens[i - 1].kind !== 'num') continue;
+    let j = i + 1;
+    if (tokens[j] && BAG_LINK.has(tokens[j].t)) j++;
+    const size = tokens[j];
+    const unit = tokens[j + 1];
+    if (size?.kind !== 'num' || unit?.kind !== 'unit' || !['kg', 'g', 'l', 'ml'].includes(unit.unit)) continue;
+    const used = new Set([j, j + 1]);
+    if (j > i + 1) used.add(i + 1);
+    if (tokens[j + 2] && BAG_LINK.has(tokens[j + 2].t)) used.add(j + 2);
+    return { size: size.value, unit: unit.unit, used };
+  }
+  return null;
 }
 
 /** Find quantities among the tokens not used by the price. */
@@ -1007,19 +1085,23 @@ function nameFrom(tokens, used, extraStop = new Set()) {
 const ADD_STOP = nfcSet([...ADD_WORDS, ...RATE_MARKERS, ...TOTAL_MARKERS_BEFORE, ...TOTAL_MARKERS_AFTER]);
 
 function parseAdd(tokens) {
-  const prices = findPrices(tokens);
+  const bag = findBag(tokens);
+  const bagUsed = bag ? bag.used : new Set();
+  const prices = findPrices(tokens, bagUsed);
   if (prices.length > 1) {
     return err('I heard more than one price. Please say one item with one price.', { reason: 'ambiguous' });
   }
   const price = prices[0] ?? null;
-  const priceUsed = price ? price.used : new Set();
+  const priceUsed = new Set([...(price ? price.used : []), ...bagUsed]);
   const quantities = findQuantities(tokens, priceUsed);
   const used = new Set(priceUsed);
   for (const q of quantities) for (const i of q.used) used.add(i);
   // Unit words that were not part of a quantity or price ("kilo chawal") are not part of the name.
   tokens.forEach((tok, i) => { if (tok.kind === 'unit' || tok.kind === 'rs') used.add(i); });
 
-  const name = nameFrom(tokens, used, ADD_STOP);
+  const baseName = nameFrom(tokens, used, ADD_STOP);
+  // "दाल (30 kg)": the sack size stays visible on the bill and receipt
+  const name = baseName && bag ? `${baseName} (${formatQty(bag.size)} ${unitLabel(bag.unit)})` : baseName;
   const partial = { name, qty: null, unit: '', rate: null };
 
   if (quantities.length > 1) {
@@ -1032,14 +1114,14 @@ function parseAdd(tokens) {
     if (!partial.unit && price.rateUnit) partial.unit = price.rateUnit;
   }
 
-  if (!name) return err('I did not catch the item name.', { reason: 'missing_name', partial });
+  if (!baseName) return err('I did not catch the item name.', { reason: 'missing_name', partial });
   if (!q) return err(`How much ${name}? The quantity is missing.`, { reason: 'missing_qty', partial });
   if (!price) return err(`What is the price of ${name}? The rate is missing.`, { reason: 'missing_rate', partial });
   if (price.price <= 0) return err('The price must be more than ₹0.', { reason: 'invalid', partial });
   if (q.qty <= 0) return err('The quantity must be more than 0.', { reason: 'invalid', partial });
 
   let qty = q.qty;
-  let unit = q.unit;
+  let unit = q.unit || (bag ? 'bag' : ''); // "30 किलो का बोरा ... 3" = 3 sacks
   let rate;
   let mode = price.mode;
   if (mode === 'unknown') {
@@ -1055,7 +1137,23 @@ function parseAdd(tokens) {
       qty = convertQuantity(qty, 'dozen', 'pcs'); // "2 dozen eggs at 6 rupees each"
       unit = 'pcs';
     }
-    if (price.rateUnit) {
+    if (bag && price.rateUnit && price.rateUnit !== 'bag' && unit === 'bag') {
+      // "2 बोरा, 25 किलो का, 40 रुपये किलो" -> 50 kg at ₹40
+      const converted = convertQuantity(qty * bag.size, bag.unit, price.rateUnit);
+      if (converted === null) {
+        return err(`The sack is in ${unitLabel(bag.unit)} but the rate is per ${unitLabel(price.rateUnit)}. Please check.`, { reason: 'unit_mismatch', partial });
+      }
+      qty = converted;
+      unit = price.rateUnit;
+    } else if (bag && price.rateUnit === 'bag' && unit && unit !== 'bag') {
+      // "50 किलो, 25 किलो का बोरा, 1000 रुपये बोरा" -> 2 bags at ₹1000
+      const inBagUnit = convertQuantity(qty, unit, bag.unit);
+      if (inBagUnit === null) {
+        return err(`The quantity is in ${unitLabel(unit)} but the sack is in ${unitLabel(bag.unit)}. Please check.`, { reason: 'unit_mismatch', partial });
+      }
+      qty = Math.round((inBagUnit / bag.size) * 1000) / 1000;
+      unit = 'bag';
+    } else if (price.rateUnit) {
       if (!unit) unit = price.rateUnit;
       else if (unit !== price.rateUnit) {
         const converted = convertQuantity(qty, unit, price.rateUnit);
@@ -1155,9 +1253,87 @@ function parseCommand(text) {
 }
 
 // Exposed for tests.
+// Spoken words that always separate two items.
+const SEPARATORS = /(?:^|\s)(?:फिर|अगला|अगली|अगले|next|phir|fir|agla|agli)(?=\s|$)/gu;
+
+// Words that can start a new item when the previous one is already complete.
+function canStartItem(tok) {
+  if (tok.kind === 'num') return true;
+  return tok.kind === 'word' && !STOPWORDS.has(tok.t) && !ADD_STOP.has(tok.t) && !PER_WORDS.has(tok.t)
+    && !RATE_AFTER.has(tok.t) && !BAG_LINK.has(tok.t) && !PERCENT_WORDS.has(tok.t);
+}
+
+/**
+ * Split one long run of words into items. An item ends once it has a name,
+ * quantity and price, and the next word starts something new: a new name, or
+ * a number that would give the item a second quantity or price.
+ */
+function splitItems(tokens) {
+  const items = [];
+  let current = [];
+  for (const tok of tokens) {
+    if (current.length && (ADD_WORDS.has(tok.t) || canStartItem(tok))) {
+      const now = parseAdd(current);
+      const last = current[current.length - 1];
+      let startsNew = false;
+      if (now.type === 'add') {
+        startsNew = ADD_WORDS.has(tok.t) || tok.kind === 'word' || parseAdd([...current, tok]).type === 'error';
+      } else if (now.reason === 'missing_rate' && tok.kind === 'word' && last.kind !== 'word') {
+        // "दाल 2 किलो | गुड़ ...": the price was left out, so end this item
+        // here and report it instead of merging it into the next one.
+        startsNew = true;
+      } else if (ADD_WORDS.has(tok.t) && now.partial?.name) {
+        startsNew = true;
+      }
+      if (startsNew) { items.push(current); current = []; }
+    }
+    current.push(tok);
+  }
+  if (current.length) items.push(current);
+  return items;
+}
+
+/**
+ * Parse everything said in one go: many items, each becoming its own
+ * command. Returns [{ text, cmd }] in the order spoken. Anything that is not
+ * a list of items (remove, change, discount, print) is parsed as one command.
+ */
+function parseMany(text) {
+  const chunks = normaliseDigits(String(text ?? '').normalize('NFC'))
+    .replace(SEPARATORS, '\n')
+    .split(/\n|।|;|(?<!\d)\.|\.(?!\d)/)
+    .map((c) => c.trim())
+    .filter(Boolean);
+  const results = [];
+  for (const chunk of chunks) {
+    const single = parseCommand(chunk);
+    if (single.type !== 'add' && single.type !== 'error') {
+      results.push({ text: chunk, cmd: single });
+      continue;
+    }
+    const tokens = tokenise(chunk);
+    const parts = splitItems(tokens);
+    if (parts.length <= 1) {
+      results.push({ text: chunk, cmd: single });
+      continue;
+    }
+    for (const part of parts) {
+      // Drop linking words at the edges ("... और", "फिर ...") from the text shown.
+      let a = 0;
+      let b = part.length;
+      while (a < b && part[a].kind === 'word' && STOPWORDS.has(part[a].t)) a++;
+      while (b > a && part[b - 1].kind === 'word' && STOPWORDS.has(part[b - 1].t)) b--;
+      const words = part.slice(a, b).map((t) => t.t).join(' ');
+      if (!part.some((t) => canStartItem(t) && t.kind === 'word') && !part.some((t) => t.kind === 'num')) continue; // only filler words
+      results.push({ text: words, cmd: parseAdd(part) });
+    }
+  }
+  return results;
+}
+
 const _internal = { tokenise };
 
-return { parseCommand, _internal };
+return { parseCommand, parseMany, _internal };
 })();
 
 __modules['speech.js'] = (function () {
@@ -1223,7 +1399,92 @@ function listenOnce(lang, handlers) {
   return { stop: () => { try { rec.stop(); } catch { /* already stopped */ } } };
 }
 
-return { speechSupport, listenOnce };
+/**
+ * Keep listening until stop() is called, so a whole list can be spoken in
+ * one go. Each pause ends one phrase, which is delivered through onPhrase;
+ * the microphone then restarts by itself. (Short phrases with automatic
+ * restarts behave the same on Android and desktop Chrome, unlike the
+ * browser's own `continuous` mode, which repeats text on Android.)
+ *
+ * handlers: { onInterim(text), onPhrase(text), onError(message), onEnd(reason) }
+ * onEnd reason: 'stopped' | 'silence' | 'error'
+ */
+function listenContinuous(lang, handlers, { silenceMs = 60000 } = {}) {
+  let stopped = false;
+  let rec = null;
+  let lastHeard = Date.now();
+  let quickEnds = 0;
+  let startedAt = 0;
+  let heardThisTime = false;
+  let lastPhrase = { text: '', at: 0 };
+
+  const finish = (reason) => {
+    if (stopped && reason !== 'stopped') return;
+    stopped = true;
+    handlers.onEnd?.(reason);
+  };
+
+  const start = () => {
+    rec = new Recognition();
+    rec.lang = lang;
+    rec.interimResults = true;
+    rec.continuous = false;
+    rec.maxAlternatives = 1;
+    rec.onresult = (event) => {
+      const result = event.results[event.results.length - 1];
+      const text = (result?.[0]?.transcript || '').trim();
+      if (!text) return;
+      lastHeard = Date.now();
+      heardThisTime = true;
+      if (!result.isFinal) { handlers.onInterim?.(text); return; }
+      // Some phones deliver the same final phrase twice.
+      if (text === lastPhrase.text && Date.now() - lastPhrase.at < 3000) return;
+      lastPhrase = { text, at: Date.now() };
+      handlers.onPhrase?.(text);
+    };
+    rec.onerror = (event) => {
+      if (event.error === 'aborted' || event.error === 'no-speech') return; // silence: keep listening
+      stopped = true;
+      handlers.onError?.(ERROR_MESSAGES[event.error] || `Voice input error: ${event.error}`);
+      handlers.onEnd?.('error');
+    };
+    rec.onend = () => {
+      if (stopped) return;
+      if (Date.now() - lastHeard > silenceMs) { finish('silence'); return; }
+      // If the microphone keeps closing immediately without hearing anything,
+      // stop instead of restarting in a tight loop.
+      quickEnds = !heardThisTime && Date.now() - startedAt < 300 ? quickEnds + 1 : 0;
+      if (quickEnds > 5) {
+        stopped = true;
+        handlers.onError?.('The microphone keeps stopping. Tap the mic to try again, or type the items.');
+        handlers.onEnd?.('error');
+        return;
+      }
+      start();
+    };
+    startedAt = Date.now();
+    heardThisTime = false;
+    try {
+      rec.start();
+    } catch (e) {
+      stopped = true;
+      handlers.onError?.(`Could not start the microphone: ${e.message}`);
+      handlers.onEnd?.('error');
+    }
+  };
+
+  start();
+  return {
+    stop() {
+      if (stopped) return;
+      stopped = true;
+      try { rec?.stop(); } catch { /* already stopped */ }
+      handlers.onEnd?.('stopped');
+    },
+  };
+}
+
+return { speechSupport, listenOnce, listenContinuous };
 })();
 
 __modules['storage.js'] = (function () {
@@ -1861,9 +2122,9 @@ return { registerPrinter, getPrinter, listPrinters, browserPrinter, PrinterError
 
 __modules['app.js'] = (function () {
 const { createBill, addItem, updateItem, removeItem, setDiscount, computeTotals, validateBillForSave, validateItemFields, findItemsByName, convertQuantity, itemAmount, formatMoney, formatQty, unitLabel, round3 } = __modules['bill.js'];
-const { parseCommand } = __modules['voice-parser.js'];
+const { parseMany } = __modules['voice-parser.js'];
 const { normaliseDigits } = __modules['numbers.js'];
-const { speechSupport, listenOnce } = __modules['speech.js'];
+const { speechSupport, listenContinuous } = __modules['speech.js'];
 const { LocalBillStore, DEFAULT_SETTINGS } = __modules['storage.js'];
 const { buildReceipt, renderReceiptHtml } = __modules['receipt.js'];
 const { getPrinter, bluetoothPrinter } = __modules['printers.js'];
@@ -1900,6 +2161,7 @@ function parseInputNumber(value) {
 }
 
 function showFeedback(kind, text, actions = []) {
+  state.lastFeedback = { kind, text };
   const box = $('feedback');
   box.replaceChildren();
   box.className = `feedback ${kind}`;
@@ -2079,22 +2341,202 @@ function applyCommand(cmd) {
   }
 }
 
-function processText(text) {
-  const cmd = parseCommand(text);
+// ------------------------------------------------------ what I heard (list)
+
+function logHeard(said, kind, message, actions = []) {
+  const li = document.createElement('li');
+  li.className = `heard-entry ${kind}`;
+  const icon = document.createElement('span');
+  icon.className = 'he-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  const body = document.createElement('div');
+  body.className = 'he-body';
+  const saidEl = document.createElement('div');
+  saidEl.className = 'he-said';
+  saidEl.textContent = `“${said}”`;
+  const msg = document.createElement('div');
+  msg.className = 'he-msg';
+  body.append(saidEl, msg);
+  li.append(icon, body);
+  setEntry(li, kind, message, actions);
+  $('heard-log').append(li);
+  $('heard-section').hidden = false;
+  updateHeardSummary();
+  li.scrollIntoView({ block: 'nearest' });
+  return li;
+}
+
+/** Update one entry: ok = added, check = needs the shopkeeper, done = handled. */
+function setEntry(li, kind, message, actions = []) {
+  li.className = `heard-entry ${kind}`;
+  li.querySelector('.he-icon').textContent = kind === 'check' ? '⚠' : kind === 'ok' ? '✓' : '–';
+  li.querySelector('.he-msg').textContent = message;
+  li.querySelector('.fb-actions')?.remove();
+  if (actions.length) {
+    const row = document.createElement('div');
+    row.className = 'fb-actions';
+    for (const a of actions) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `btn btn-small${a.primary ? ' btn-primary' : ''}`;
+      btn.textContent = a.label;
+      btn.addEventListener('click', () => a.onClick(li), { once: true });
+      row.append(btn);
+    }
+    li.querySelector('.he-body').append(row);
+  }
+  updateHeardSummary();
+}
+
+function updateHeardSummary() {
+  const n = $('heard-log').querySelectorAll('.heard-entry.check').length;
+  $('heard-summary').textContent = n ? `${n} to check` : '';
+}
+
+function clearHeardLog() {
+  $('heard-log').replaceChildren();
+  $('heard-section').hidden = true;
+  state.fixEntry = null;
+}
+
+function removeAction(itemId) {
+  return {
+    label: 'Remove',
+    onClick: (li) => {
+      const r = removeItem(state.bill, itemId);
+      if (!r.ok || state.saved) { setEntry(li, 'done', 'Already removed.'); return; }
+      commit(r.bill, 'remove');
+      setEntry(li, 'done', `Removed ${r.item.name}.`);
+    },
+  };
+}
+
+function fixAction(partial, reason) {
+  return {
+    label: 'Fix',
+    primary: true,
+    onClick: (li) => {
+      prefillForm(partial, reason);
+      state.fixEntry = li;
+      setEntry(li, 'check', 'Fix it in “Add item manually” below, then tap Add item.', [skipAction()]);
+      $('item-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    },
+  };
+}
+
+function skipAction() {
+  return { label: 'Skip', onClick: (li) => { if (state.fixEntry === li) state.fixEntry = null; setEntry(li, 'done', 'Skipped. Not added to the bill.'); } };
+}
+
+/** Add one item from a list without stopping to ask; problems go to the list. */
+function addFromList(cmd, said) {
+  const fields = { name: cmd.name, qty: round3(cmd.qty), unit: cmd.unit, rate: cmd.rate };
+  const problems = validateItemFields(fields);
+  if (problems.length) {
+    logHeard(said, 'check', problems.join(' '), [fixAction(fields), skipAction()]);
+    return false;
+  }
+  const r = addItem(state.bill, fields);
+  if (r.ok) {
+    commit(r.bill, 'add');
+    flashRow(r.item.id);
+    logHeard(said, 'ok', `Added ${describeItem(r.item)}`, [removeAction(r.item.id)]);
+    return true;
+  }
+  if (r.code === 'duplicate') {
+    logHeard(said, 'check', `${r.existing.name} is already on the bill (${describeItem(r.existing)}).`, [
+      {
+        label: 'Add as new line',
+        primary: true,
+        onClick: (li) => {
+          const again = addItem(state.bill, fields, { allowDuplicate: true });
+          if (!again.ok || state.saved) { setEntry(li, 'done', 'Not added.'); return; }
+          commit(again.bill, 'add');
+          setEntry(li, 'ok', `Added ${describeItem(again.item)}`, [removeAction(again.item.id)]);
+        },
+      },
+      skipAction(),
+    ]);
+    return false;
+  }
+  logHeard(said, 'check', r.errors.join(' '), [fixAction(fields), skipAction()]);
+  return false;
+}
+
+/**
+ * Handle everything said (or typed) in one go: one item, a list of 15-20
+ * items, or a command such as remove, discount or "print the bill".
+ */
+function handleSpeech(text) {
   if (state.saving) {
     showFeedback('ask', 'Please wait, this bill is being saved.');
     return;
   }
-  if (state.saved) {
-    if (cmd.type === 'finish') { openPrintPreview(state.saved); return; }
-    // The last bill is already saved, so nothing is lost: a new item starts the next bill.
-    if (cmd.type !== 'add') {
-      showFeedback('ask', 'This bill is already saved. Say a new item to start the next bill, or tap “New Bill”.');
-      return;
+  const results = parseMany(text);
+  if (!results.length) return;
+  const many = results.length > 1;
+  let added = 0;
+  let toCheck = 0;
+
+  for (const { text: said, cmd } of results) {
+    if (state.saved) {
+      if (cmd.type === 'finish') { stopListening(); openPrintPreview(state.saved); continue; }
+      // The last bill is already saved, so nothing is lost: a new item starts the next bill.
+      if (cmd.type !== 'add' && cmd.type !== 'error') {
+        showFeedback('ask', 'This bill is already saved. Say a new item to start the next bill, or tap “New Bill”.');
+        continue;
+      }
+      startFreshBill();
     }
-    startFreshBill();
+    if (cmd.type === 'finish') {
+      stopListening();
+      applyCommand(cmd);
+      continue;
+    }
+    if (cmd.type === 'add') {
+      const ok = addFromList(cmd, said);
+      if (ok) added++; else toCheck++;
+      if (!many) {
+        const entry = $('heard-log').lastElementChild;
+        const note = ok && cmd.priceMode === 'total' ? ` (₹${formatMoney(cmd.total)} total)` : '';
+        const msg = entry.querySelector('.he-msg').textContent;
+        if (ok) showFeedback('ok', `${msg}${note}`, undoAction());
+        else showFeedback('ask', `${msg} See “What I heard” below.`);
+      }
+      continue;
+    }
+    if (many && cmd.type === 'error') {
+      logHeard(said, 'check', cmd.message, cmd.partial ? [fixAction(cmd.partial, cmd.reason), skipAction()] : [skipAction()]);
+      toCheck++;
+      continue;
+    }
+
+    // A single item or command: same behaviour as before, plus a line in the list.
+    const before = new Set(state.bill.items.map((it) => it.id));
+    applyCommand(cmd);
+    const newItem = state.bill.items.find((it) => !before.has(it.id));
+    const fb = state.lastFeedback || { kind: 'ok', text: '' };
+    if (newItem) {
+      logHeard(said, 'ok', `Added ${describeItem(newItem)}`, [removeAction(newItem.id)]);
+    } else if (cmd.type === 'error') {
+      // The form is already filled in with what was understood.
+      const li = logHeard(said, 'check', cmd.message, cmd.partial ? [fixAction(cmd.partial, cmd.reason), skipAction()] : [skipAction()]);
+      if (cmd.partial) state.fixEntry = li;
+    } else {
+      logHeard(said, fb.kind === 'ok' ? 'ok' : 'check', fb.text);
+    }
   }
-  applyCommand(cmd);
+
+  if (many) {
+    const parts = [];
+    if (added) parts.push(`Added ${added} item${added === 1 ? '' : 's'}.`);
+    if (toCheck) parts.push(`${toCheck} need${toCheck === 1 ? 's' : ''} checking: see “What I heard” below.`);
+    if (parts.length) showFeedback(toCheck ? 'ask' : 'ok', `${parts.join(' ')} Total ${money(computeTotals(state.bill).grandTotal)}.`);
+  }
+}
+
+function stopListening() {
+  state.listener?.stop();
 }
 
 // ------------------------------------------------------------- printing
@@ -2169,13 +2611,6 @@ function testPrint() {
   printOnBluetooth(sample, 'Test receipt sent. If nothing printed, check paper and that the printer is on.');
 }
 
-/** Prefer the top alternative; fall back to another one only if the top one cannot be understood. */
-function pickAlternative(alternatives) {
-  if (!alternatives.length) return '';
-  if (parseCommand(alternatives[0]).type !== 'error') return alternatives[0];
-  return alternatives.slice(1).find((a) => parseCommand(a).type !== 'error') ?? alternatives[0];
-}
-
 // ------------------------------------------------------------- voice input
 
 function setupVoice() {
@@ -2188,26 +2623,26 @@ function setupVoice() {
     return;
   }
   mic.addEventListener('click', () => {
-    if (state.listener) { state.listener.stop(); return; }
+    if (state.listener) { stopListening(); return; }
     hideFeedback();
     $('heard-text').value = '';
     mic.classList.add('listening');
     mic.setAttribute('aria-pressed', 'true');
     $('mic-label').textContent = 'Listening… tap to stop';
-    state.listener = listenOnce($('voice-lang').value, {
+    // Keeps listening through pauses, so a whole list can be spoken in one go.
+    state.listener = listenContinuous($('voice-lang').value, {
       onInterim: (text) => { $('heard-text').value = text; },
-      onResult: (alternatives) => {
-        const chosen = pickAlternative(alternatives);
-        $('heard-text').value = chosen;
-        if (chosen) processText(chosen);
-        else showFeedback('ask', 'I did not hear anything. Please try again.');
+      onPhrase: (text) => {
+        $('heard-text').value = text;
+        handleSpeech(text);
       },
       onError: (message) => showFeedback('error', message),
-      onEnd: () => {
+      onEnd: (reason) => {
         state.listener = null;
         mic.classList.remove('listening');
         mic.setAttribute('aria-pressed', 'false');
         $('mic-label').textContent = 'Tap to speak';
+        if (reason === 'silence') showFeedback('ask', 'Stopped listening after 1 minute of silence. Tap the mic to continue.');
       },
     });
   });
@@ -2284,6 +2719,10 @@ function onFormSubmit(event) {
   const r = tryAdd(fields);
   if (r.ok) {
     clearForm();
+    if (state.fixEntry) {
+      setEntry(state.fixEntry, 'ok', `Added after fixing: ${describeItem(r.item)}`, [removeAction(r.item.id)]);
+      state.fixEntry = null;
+    }
     showFeedback('ok', `Added ${describeItem(r.item)}`, undoAction());
     $('f-name').focus();
   }
@@ -2390,7 +2829,7 @@ function render() {
     el.disabled = locked;
   }
   const busy = state.saving;
-  for (const el of $('heard-form').querySelectorAll('input, button')) el.disabled = busy;
+  for (const el of $('heard-form').querySelectorAll('textarea, button')) el.disabled = busy;
   if (speechSupport().supported) $('btn-mic').disabled = busy;
 
   $('btn-save').disabled = locked || !store || busy;
@@ -2435,6 +2874,7 @@ async function renderHistory() {
 
 function openReview({ spoken = false } = {}) {
   if (state.saved || !store || state.saving) return;
+  stopListening();
   state.bill = { ...state.bill, customerName: $('customer-name').value.trim() };
   const errors = validateBillForSave(state.bill);
   if (errors.length) {
@@ -2564,6 +3004,7 @@ async function newBill() {
 }
 
 function startFreshBill() {
+  clearHeardLog();
   state.bill = createBill();
   state.saved = null;
   state.undo = null;
@@ -2622,8 +3063,13 @@ async function init() {
   $('heard-form').addEventListener('submit', (e) => {
     e.preventDefault();
     const text = $('heard-text').value.trim();
-    if (text) processText(text);
+    if (text) handleSpeech(text);
   });
+  // Enter applies, Shift+Enter starts a new line (a typed or pasted list)
+  $('heard-text').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('heard-form').requestSubmit(); }
+  });
+  $('btn-clear-heard').addEventListener('click', clearHeardLog);
   $('item-form').addEventListener('submit', onFormSubmit);
   $('item-form').addEventListener('input', updateAmountPreview);
   $('btn-cancel-edit').addEventListener('click', () => { clearForm(); render(); });

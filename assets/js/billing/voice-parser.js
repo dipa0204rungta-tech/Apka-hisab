@@ -4,7 +4,7 @@
 // parts it did understand, so the UI can ask the user to correct it.
 
 import { normaliseDigits, wordsToNumbers } from './numbers.js';
-import { convertQuantity, unitLabel } from './bill.js';
+import { convertQuantity, unitLabel, formatQty } from './bill.js';
 
 const nfcSet = (words) => new Set(words.map((w) => w.normalize('NFC')));
 const nfcMap = (pairs) => new Map(pairs.map(([k, v]) => [k.normalize('NFC'), v]));
@@ -24,12 +24,17 @@ const UNIT_WORDS = {
   packet: ['packet', 'packets', 'pack', 'packs', 'pkt', 'pkts', 'पैकेट', 'पैकिट'],
   bottle: ['bottle', 'bottles', 'बोतल'],
   box: ['box', 'boxes', 'dibba', 'डिब्बा', 'डिब्बे'],
+  bag: ['bag', 'bags', 'sack', 'sacks', 'bora', 'bore', 'bori', 'boriya', 'katta', 'katte', 'बोरा', 'बोरे', 'बोरी', 'बोरिया', 'बोरियां', 'कट्टा', 'कट्टे'],
 };
 const UNIT_LOOKUP = new Map();
 for (const [code, words] of Object.entries(UNIT_WORDS)) for (const w of words) UNIT_LOOKUP.set(w.normalize('NFC'), code);
 
-const PER_WORDS = nfcSet(['per', 'each', 'प्रति', 'har', 'हर', 'a', 'an', 'every']);
+const PER_WORDS = nfcSet(['per', 'each', 'प्रति', 'पर', 'पे', 'har', 'हर', 'a', 'an', 'every']);
 const EACH_WORDS = nfcSet(['each', 'every']);
+// "1200 rate" / "1200 रुपये रेट": the rate word after the number
+const RATE_AFTER = nfcSet(['rate', 'रेट', 'भाव', 'bhav', 'bhaav', 'दाम', 'daam', 'price', 'कीमत']);
+// "30 किलो का बोरा": words between a sack's size and the sack
+const BAG_LINK = nfcSet(['ka', 'ki', 'ke', 'का', 'की', 'के', 'of', 'wala', 'wali', 'wale', 'वाला', 'वाली', 'वाले']);
 const RATE_MARKERS = nfcSet(['at', '@', 'rate', 'bhav', 'bhaav', 'भाव', 'दाम', 'daam', 'रेट', 'price', 'कीमत', 'keemat', 'kimat']);
 const TOTAL_MARKERS_BEFORE = nfcSet(['for', 'total', 'worth', 'in', 'टोटल']);
 const TOTAL_MARKERS_AFTER = nfcSet(['ka', 'ki', 'ke', 'का', 'की', 'के', 'में', 'mein', 'me', 'main', 'total', 'worth']);
@@ -51,7 +56,7 @@ const STOPWORDS = nfcSet([
   'aur', 'और', 'bhi', 'भी', 'is', 'ko', 'को', 'it', 'its', 'my', 'this', 'that', 'be', 'should', 'make',
   'set', 'karo', 'kar', 'कर', 'करो', 'hai', 'है', 'प्रति', 'har', 'हर', 'line', 'entry', 'lagao', 'jodo',
   'hatao', 'ji', 'जी', 'now', 'abhi', 'अभी', 'then', 'by', 'off', 'apply', 'give', 'want', 'i', 'we',
-  '@', 'rate', 'price', 'rs', 'cost', 'only', 'sirf', 'सिर्फ',
+  '@', 'rate', 'price', 'rs', 'cost', 'only', 'sirf', 'सिर्फ', 'करके', 'karke', 'करके', 'कर', 'पर', 'पे', 'वो', 'ये', 'यह',
 ]);
 
 // Multi-word Hindi verb phrases, normalised before tokenising so the "दो"
@@ -102,10 +107,10 @@ function err(message, extra = {}) {
 }
 
 /** Find a price expression. Returns { price, mode: 'rate'|'total'|'unknown', rateUnit, used:Set } or null. */
-function findPrices(tokens) {
+function findPrices(tokens, skip = new Set()) {
   const found = [];
   tokens.forEach((tok, i) => {
-    if (tok.kind !== 'num') return;
+    if (tok.kind !== 'num' || skip.has(i)) return;
     const prev = tokens[i - 1];
     const next = tokens[i + 1];
     let j = i + 1;
@@ -128,14 +133,23 @@ function findPrices(tokens) {
       found.push({ price: tok.value, mode: 'rate', rateUnit, each: EACH_WORDS.has(after.t), used, index: i });
       return;
     }
+    // "1200 rate", "1200 रुपये रेट", "40 रुपये भाव"
+    if (after && RATE_AFTER.has(after.t)) {
+      used.add(j);
+      found.push({ price: tok.value, mode: 'rate', rateUnit: null, used, index: i });
+      return;
+    }
     // "60 रुपये किलो" / "60 rupees kilo"
     if (hasRs && after?.kind === 'unit') {
       used.add(j);
       found.push({ price: tok.value, mode: 'rate', rateUnit: after.unit, used, index: i });
       return;
     }
-    const before = prev?.kind === 'rs' ? tokens[i - 2] : prev;
-    if (before && RATE_MARKERS.has(before.t) && (hasRs || next?.kind !== 'unit')) {
+    const beforeIndex = prev?.kind === 'rs' ? i - 2 : i - 1;
+    const before = tokens[beforeIndex];
+    // "1200 रेट 4": रेट belongs to 1200, so 4 is not a second price
+    const markerTaken = tokens[beforeIndex - 1]?.kind === 'num' || tokens[beforeIndex - 1]?.kind === 'rs';
+    if (before && RATE_MARKERS.has(before.t) && !(RATE_AFTER.has(before.t) && markerTaken) && (hasRs || next?.kind !== 'unit')) {
       found.push({ price: tok.value, mode: 'rate', rateUnit: null, used, index: i });
       return;
     }
@@ -152,6 +166,41 @@ function findPrices(tokens) {
     }
   });
   return found;
+}
+
+/**
+ * Find the size of a sack: "30 किलो का बोरा", "25 kg bag". The size describes
+ * the sack; it is not the quantity being bought.
+ */
+function findBag(tokens) {
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
+    const unit = tokens[i + 1];
+    if (tok.kind !== 'num' || unit?.kind !== 'unit' || !['kg', 'g', 'l', 'ml'].includes(unit.unit)) continue;
+    let j = i + 2;
+    if (tokens[j] && BAG_LINK.has(tokens[j].t)) j++;
+    if (tokens[j]?.kind === 'unit' && tokens[j].unit === 'bag') {
+      const used = new Set();
+      for (let k = i; k <= j; k++) used.add(k);
+      // "4 बोरा" right after is the count of sacks, so leave the sack word for it
+      // only when a separate count is not spoken ("30 किलो का बोरा 2000 रुपये बोरा 3")
+      return { size: tok.value, unit: unit.unit, used };
+    }
+  }
+  // "2 बोरा 25 किलो का" / "2 bags of 25 kg": the size follows the count
+  for (let i = 1; i < tokens.length; i++) {
+    if (tokens[i].kind !== 'unit' || tokens[i].unit !== 'bag' || tokens[i - 1].kind !== 'num') continue;
+    let j = i + 1;
+    if (tokens[j] && BAG_LINK.has(tokens[j].t)) j++;
+    const size = tokens[j];
+    const unit = tokens[j + 1];
+    if (size?.kind !== 'num' || unit?.kind !== 'unit' || !['kg', 'g', 'l', 'ml'].includes(unit.unit)) continue;
+    const used = new Set([j, j + 1]);
+    if (j > i + 1) used.add(i + 1);
+    if (tokens[j + 2] && BAG_LINK.has(tokens[j + 2].t)) used.add(j + 2);
+    return { size: size.value, unit: unit.unit, used };
+  }
+  return null;
 }
 
 /** Find quantities among the tokens not used by the price. */
@@ -188,19 +237,23 @@ function nameFrom(tokens, used, extraStop = new Set()) {
 const ADD_STOP = nfcSet([...ADD_WORDS, ...RATE_MARKERS, ...TOTAL_MARKERS_BEFORE, ...TOTAL_MARKERS_AFTER]);
 
 function parseAdd(tokens) {
-  const prices = findPrices(tokens);
+  const bag = findBag(tokens);
+  const bagUsed = bag ? bag.used : new Set();
+  const prices = findPrices(tokens, bagUsed);
   if (prices.length > 1) {
     return err('I heard more than one price. Please say one item with one price.', { reason: 'ambiguous' });
   }
   const price = prices[0] ?? null;
-  const priceUsed = price ? price.used : new Set();
+  const priceUsed = new Set([...(price ? price.used : []), ...bagUsed]);
   const quantities = findQuantities(tokens, priceUsed);
   const used = new Set(priceUsed);
   for (const q of quantities) for (const i of q.used) used.add(i);
   // Unit words that were not part of a quantity or price ("kilo chawal") are not part of the name.
   tokens.forEach((tok, i) => { if (tok.kind === 'unit' || tok.kind === 'rs') used.add(i); });
 
-  const name = nameFrom(tokens, used, ADD_STOP);
+  const baseName = nameFrom(tokens, used, ADD_STOP);
+  // "दाल (30 kg)": the sack size stays visible on the bill and receipt
+  const name = baseName && bag ? `${baseName} (${formatQty(bag.size)} ${unitLabel(bag.unit)})` : baseName;
   const partial = { name, qty: null, unit: '', rate: null };
 
   if (quantities.length > 1) {
@@ -213,14 +266,14 @@ function parseAdd(tokens) {
     if (!partial.unit && price.rateUnit) partial.unit = price.rateUnit;
   }
 
-  if (!name) return err('I did not catch the item name.', { reason: 'missing_name', partial });
+  if (!baseName) return err('I did not catch the item name.', { reason: 'missing_name', partial });
   if (!q) return err(`How much ${name}? The quantity is missing.`, { reason: 'missing_qty', partial });
   if (!price) return err(`What is the price of ${name}? The rate is missing.`, { reason: 'missing_rate', partial });
   if (price.price <= 0) return err('The price must be more than ₹0.', { reason: 'invalid', partial });
   if (q.qty <= 0) return err('The quantity must be more than 0.', { reason: 'invalid', partial });
 
   let qty = q.qty;
-  let unit = q.unit;
+  let unit = q.unit || (bag ? 'bag' : ''); // "30 किलो का बोरा ... 3" = 3 sacks
   let rate;
   let mode = price.mode;
   if (mode === 'unknown') {
@@ -236,7 +289,23 @@ function parseAdd(tokens) {
       qty = convertQuantity(qty, 'dozen', 'pcs'); // "2 dozen eggs at 6 rupees each"
       unit = 'pcs';
     }
-    if (price.rateUnit) {
+    if (bag && price.rateUnit && price.rateUnit !== 'bag' && unit === 'bag') {
+      // "2 बोरा, 25 किलो का, 40 रुपये किलो" -> 50 kg at ₹40
+      const converted = convertQuantity(qty * bag.size, bag.unit, price.rateUnit);
+      if (converted === null) {
+        return err(`The sack is in ${unitLabel(bag.unit)} but the rate is per ${unitLabel(price.rateUnit)}. Please check.`, { reason: 'unit_mismatch', partial });
+      }
+      qty = converted;
+      unit = price.rateUnit;
+    } else if (bag && price.rateUnit === 'bag' && unit && unit !== 'bag') {
+      // "50 किलो, 25 किलो का बोरा, 1000 रुपये बोरा" -> 2 bags at ₹1000
+      const inBagUnit = convertQuantity(qty, unit, bag.unit);
+      if (inBagUnit === null) {
+        return err(`The quantity is in ${unitLabel(unit)} but the sack is in ${unitLabel(bag.unit)}. Please check.`, { reason: 'unit_mismatch', partial });
+      }
+      qty = Math.round((inBagUnit / bag.size) * 1000) / 1000;
+      unit = 'bag';
+    } else if (price.rateUnit) {
       if (!unit) unit = price.rateUnit;
       else if (unit !== price.rateUnit) {
         const converted = convertQuantity(qty, unit, price.rateUnit);
@@ -336,4 +405,82 @@ export function parseCommand(text) {
 }
 
 // Exposed for tests.
+// Spoken words that always separate two items.
+const SEPARATORS = /(?:^|\s)(?:फिर|अगला|अगली|अगले|next|phir|fir|agla|agli)(?=\s|$)/gu;
+
+// Words that can start a new item when the previous one is already complete.
+function canStartItem(tok) {
+  if (tok.kind === 'num') return true;
+  return tok.kind === 'word' && !STOPWORDS.has(tok.t) && !ADD_STOP.has(tok.t) && !PER_WORDS.has(tok.t)
+    && !RATE_AFTER.has(tok.t) && !BAG_LINK.has(tok.t) && !PERCENT_WORDS.has(tok.t);
+}
+
+/**
+ * Split one long run of words into items. An item ends once it has a name,
+ * quantity and price, and the next word starts something new: a new name, or
+ * a number that would give the item a second quantity or price.
+ */
+function splitItems(tokens) {
+  const items = [];
+  let current = [];
+  for (const tok of tokens) {
+    if (current.length && (ADD_WORDS.has(tok.t) || canStartItem(tok))) {
+      const now = parseAdd(current);
+      const last = current[current.length - 1];
+      let startsNew = false;
+      if (now.type === 'add') {
+        startsNew = ADD_WORDS.has(tok.t) || tok.kind === 'word' || parseAdd([...current, tok]).type === 'error';
+      } else if (now.reason === 'missing_rate' && tok.kind === 'word' && last.kind !== 'word') {
+        // "दाल 2 किलो | गुड़ ...": the price was left out, so end this item
+        // here and report it instead of merging it into the next one.
+        startsNew = true;
+      } else if (ADD_WORDS.has(tok.t) && now.partial?.name) {
+        startsNew = true;
+      }
+      if (startsNew) { items.push(current); current = []; }
+    }
+    current.push(tok);
+  }
+  if (current.length) items.push(current);
+  return items;
+}
+
+/**
+ * Parse everything said in one go: many items, each becoming its own
+ * command. Returns [{ text, cmd }] in the order spoken. Anything that is not
+ * a list of items (remove, change, discount, print) is parsed as one command.
+ */
+export function parseMany(text) {
+  const chunks = normaliseDigits(String(text ?? '').normalize('NFC'))
+    .replace(SEPARATORS, '\n')
+    .split(/\n|।|;|(?<!\d)\.|\.(?!\d)/)
+    .map((c) => c.trim())
+    .filter(Boolean);
+  const results = [];
+  for (const chunk of chunks) {
+    const single = parseCommand(chunk);
+    if (single.type !== 'add' && single.type !== 'error') {
+      results.push({ text: chunk, cmd: single });
+      continue;
+    }
+    const tokens = tokenise(chunk);
+    const parts = splitItems(tokens);
+    if (parts.length <= 1) {
+      results.push({ text: chunk, cmd: single });
+      continue;
+    }
+    for (const part of parts) {
+      // Drop linking words at the edges ("... और", "फिर ...") from the text shown.
+      let a = 0;
+      let b = part.length;
+      while (a < b && part[a].kind === 'word' && STOPWORDS.has(part[a].t)) a++;
+      while (b > a && part[b - 1].kind === 'word' && STOPWORDS.has(part[b - 1].t)) b--;
+      const words = part.slice(a, b).map((t) => t.t).join(' ');
+      if (!part.some((t) => canStartItem(t) && t.kind === 'word') && !part.some((t) => t.kind === 'num')) continue; // only filler words
+      results.push({ text: words, cmd: parseAdd(part) });
+    }
+  }
+  return results;
+}
+
 export const _internal = { tokenise };

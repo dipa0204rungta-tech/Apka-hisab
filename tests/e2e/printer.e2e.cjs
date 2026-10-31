@@ -11,15 +11,23 @@ const mocks = () => {
   window.__speechQueue = [];
   window.__btBytes = [];
   window.__btFail = false;
+  // Behaves like the browser: each start() hears the next queued phrase (or
+  // stays quiet), then ends; the app restarts it until the mic is tapped off.
   class FakeRecognition {
     start() {
-      const text = window.__speechQueue.shift();
+      const next = window.__speechQueue.shift();
+      if (next === undefined) { this.idle = true; return; }
       setTimeout(() => {
-        this.onresult?.({ results: [Object.assign([{ transcript: text }], { isFinal: true })] });
+        if (next && next.error) { this.onerror?.({ error: next.error }); this.onend?.(); return; }
+        const text = Array.isArray(next) ? next[0] : next;
+        this.onresult?.({ results: [Object.assign([{ transcript: text.slice(0, 5) }], { isFinal: false })] });
+        const res = Object.assign([{ transcript: text }], { isFinal: true });
+        this.onresult?.({ results: [res] });
+        this.onresult?.({ results: [res] }); // duplicate final event, must be ignored
         this.onend?.();
-      }, 20);
+      }, 30);
     }
-    stop() {}
+    stop() { if (this.idle) setTimeout(() => this.onend?.(), 10); }
   }
   window.SpeechRecognition = FakeRecognition;
   window.webkitSpeechRecognition = FakeRecognition;
@@ -70,9 +78,13 @@ const decodeToPng = (bytes) => {
   await page.evaluate(() => localStorage.clear());
   await page.reload();
 
-  const say = async (text) => {
-    await page.evaluate((t) => window.__speechQueue.push(t), text);
-    await page.click('#btn-mic');
+  // Tap the mic, speak the phrases (with pauses between them), tap the mic off.
+  const say = async (...phrases) => {
+    await page.evaluate((a) => window.__speechQueue.push(...a), phrases);
+    if (!(await page.evaluate(() => document.getElementById('btn-mic').classList.contains('listening')))) await page.click('#btn-mic');
+    await page.waitForFunction(() => window.__speechQueue.length === 0);
+    await page.waitForTimeout(120);
+    if (await page.evaluate(() => document.getElementById('btn-mic').classList.contains('listening'))) await page.click('#btn-mic');
     await page.waitForFunction(() => !document.getElementById('btn-mic').classList.contains('listening'));
   };
   const fb = () => page.textContent('#feedback');
