@@ -90,12 +90,15 @@ test('never invents missing quantities or prices', () => {
   error('दो किलो चावल', 'missing_rate');
 });
 
-test('asks when the price could be a rate or a total', () => {
-  const r = error('add 2 kg rice 60 rupees', 'ambiguous_price');
-  assert.equal(r.partial.qty, 2);
-  assert.equal(r.partial.rate, null);
-  // With quantity 1 the rate and the total are the same, so it is not ambiguous.
+test('an amount without a rate word is the total for the line, as on shop slips', () => {
+  const r = add('add 2 kg rice 60 rupees');
+  assert.equal(r.priceMode, 'total');
+  assert.equal(r.rate, 30);
+  // With quantity 1 the rate and the total are the same.
   assert.equal(add('add 1 kg rice 60 rupees').rate, 60);
+  // A rate is still a rate when said with "per", "किलो", "रेट".
+  assert.equal(add('add 2 kg rice 60 rupees per kg').rate, 60);
+  // Two prices or two quantities are still asked, not guessed.
   error('add 2 kg rice at 60 rupees per kg for 120 rupees', 'ambiguous');
   error('add 2 kg 3 kg rice at 60 per kg', 'ambiguous');
 });

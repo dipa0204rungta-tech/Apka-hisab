@@ -16,6 +16,7 @@ export const UNITS = {
   packet: { label: 'packet', base: 'packet', factor: 1 },
   bottle: { label: 'bottle', base: 'bottle', factor: 1 },
   box: { label: 'box', base: 'box', factor: 1 },
+  tin: { label: 'टिन', base: 'tin', factor: 1 },
   bag: { label: 'बोरा', base: 'bag', factor: 1 }, // sack; its size goes in the item name
 };
 
@@ -149,7 +150,11 @@ export function addItem(bill, fields, { allowDuplicate = false } = {}) {
   if (errors.length) return { ok: false, code: 'invalid', errors };
   if (bill.items.length >= MAX_ITEMS) return { ok: false, code: 'invalid', errors: [`A bill can have at most ${MAX_ITEMS} items.`] };
   const key = nameKey(fields.name);
-  const existing = bill.items.find((it) => nameKey(it.name) === key);
+  // Only an exact repeat (same item, quantity and rate) is treated as an
+  // accident. The same item at another quantity or price is a separate line,
+  // e.g. two qualities of चना दाल at ₹75 and ₹65.
+  const existing = bill.items.find((it) => nameKey(it.name) === key && it.qty === fields.qty
+    && (it.unit || '') === (fields.unit || '') && round2(it.rate) === round2(fields.rate));
   if (existing && !allowDuplicate) {
     return { ok: false, code: 'duplicate', existing, errors: [`${existing.name} is already on the bill.`] };
   }

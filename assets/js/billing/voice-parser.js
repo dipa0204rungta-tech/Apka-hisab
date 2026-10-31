@@ -24,6 +24,7 @@ const UNIT_WORDS = {
   packet: ['packet', 'packets', 'pack', 'packs', 'pkt', 'pkts', 'पैकेट', 'पैकिट'],
   bottle: ['bottle', 'bottles', 'बोतल'],
   box: ['box', 'boxes', 'dibba', 'डिब्बा', 'डिब्बे'],
+  tin: ['tin', 'tins', 'teen', 'टिन', 'टीन', 'टिनें', 'पीपा', 'पीपे', 'peepa'],
   bag: ['bag', 'bags', 'sack', 'sacks', 'bora', 'bore', 'bori', 'boriya', 'katta', 'katte', 'बोरा', 'बोरे', 'बोरी', 'बोरिया', 'बोरियां', 'कट्टा', 'कट्टे'],
 };
 const UNIT_LOOKUP = new Map();
@@ -93,15 +94,36 @@ function tokenise(text) {
   // Separate numbers glued to words: "2kg" -> "2 kg", "rs60" -> "rs 60"
   s = s.replace(/(\d)(?=[a-zऀ-ॿ])/g, '$1 ').replace(/([a-zऀ-ॿ])(?=\d)/g, '$1 ');
   // Keep decimal points between digits, drop other punctuation.
-  s = s.replace(/(\d)\.(\d)/g, '$1\u0000$2').replace(/[.,!?;:"'()\[\]{}।|]+/g, ' ').replace(/\u0000/g, '.');
+  s = s.replace(/(\d)\.(\d)/g, '$1\u0000$2').replace(/[.,!?;:"'()\[\]{}।|–—-]+/g, ' ').replace(/\u0000/g, '.');
   for (const [re, rep] of PHRASES) s = s.replace(new RegExp(re.source.normalize('NFC'), re.flags), rep);
   const words = s.split(/\s+/).filter(Boolean).map((w) => VERB_ALIASES.get(w) ?? w);
-  return wordsToNumbers(words).map((t) => {
+  const tokens = wordsToNumbers(words).map((t) => {
     if (/^\d+(\.\d+)?$/.test(t)) return { t, kind: 'num', value: parseFloat(t) };
     if (RUPEE_WORDS.has(t)) return { t, kind: 'rs' };
     if (UNIT_LOOKUP.has(t)) return { t, kind: 'unit', unit: UNIT_LOOKUP.get(t) };
     return { t, kind: 'word' };
   });
+  return expandTimes(tokens);
+}
+
+// "6 इनटू 25", "6 x 25", "2 गुणा 30": how many × size of each, as written on
+// shop slips ("Chini - 2x30"). Rewritten as "6 बोरा 25 kg" so the pack-size
+// rules below apply. Big packs (10 kg and more) count as sacks, small as pieces.
+const TIMES_WORDS = nfcSet(['x', '×', '*', 'into', 'इनटू', 'इंटू', 'इन्टू', 'इनतू', 'गुणा', 'गुणे', 'गुना', 'गुने', 'guna', 'gune', 'cross']);
+function expandTimes(tokens) {
+  const out = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const [count, times, size, unit] = [tokens[i], tokens[i + 1], tokens[i + 2], tokens[i + 3]];
+    if (count.kind === 'num' && times && TIMES_WORDS.has(times.t) && size?.kind === 'num') {
+      const sizeUnit = unit?.kind === 'unit' && WEIGHT_UNITS.has(unit.unit) ? unit.unit : 'kg';
+      const big = convertQuantity(size.value, sizeUnit, sizeUnit === 'g' || sizeUnit === 'kg' ? 'kg' : 'l') >= 10;
+      out.push(count, { t: big ? 'बोरा' : 'pcs', kind: 'unit', unit: big ? 'bag' : 'pcs' }, size, { t: sizeUnit, kind: 'unit', unit: sizeUnit });
+      i += unit?.kind === 'unit' && WEIGHT_UNITS.has(unit.unit) ? 3 : 2;
+      continue;
+    }
+    out.push(count);
+  }
+  return out;
 }
 
 const has = (tokens, set) => tokens.some((tok) => set.has(tok.t));
@@ -252,9 +274,22 @@ function parseAdd(tokens) {
   if (prices.length > 1) {
     return err('I heard more than one price. Please say one item with one price.', { reason: 'ambiguous' });
   }
-  const price = prices[0] ?? null;
+  let price = prices[0] ?? null;
   const priceUsed = new Set([...(price ? price.used : []), ...bagUsed]);
   let quantities = findQuantities(tokens, priceUsed);
+  // Shop slips write the amount, not the rate: "चना 5 किलो 325", "Fortune 7 16660".
+  // A last plain number after the quantity is the total amount for the line.
+  if (!price && quantities.length >= 2) {
+    const lastNum = tokens.reduce((last, t, i) => (t.kind === 'num' ? i : last), -1);
+    const amount = quantities.find((q) => q.unit === '' && q.used.has(lastNum));
+    const after = tokens[lastNum + 1];
+    const isCount = after && EACH_AFTER_PRICE.has(after.t); // "3 करके" = 3 of them
+    if (amount && !isCount && !(Number.isInteger(amount.qty) && amount.qty < 10)) {
+      price = { price: amount.qty, mode: 'total', rateUnit: null, used: amount.used };
+      for (const i of amount.used) priceUsed.add(i);
+      quantities = quantities.filter((q) => q !== amount);
+    }
+  }
   // Pack size + how many: "25 kg चावल का 4 बोरा", "1 किलो वाला पैकेट 5", "चीनी 50 किलो 3 करके".
   // One weight and one count: the weight is the size of each pack, the count is how many are sold.
   if (!bag && quantities.length === 2) {
@@ -297,13 +332,10 @@ function parseAdd(tokens) {
   let unit = q.unit || (bag ? 'bag' : ''); // "30 किलो का बोरा ... 3" = 3 sacks
   let rate;
   let mode = price.mode;
-  if (mode === 'unknown') {
-    if (qty === 1) mode = 'rate';
-    else {
-      partial.rate = null;
-      return err(`Is ₹${price.price} the rate per ${unitLabel(unit) || 'unit'} or the total for ${qty} ${unitLabel(unit)}? Say "at ${price.price} per ${unitLabel(unit) || 'piece'}" or "for ${price.price} rupees".`, { reason: 'ambiguous_price', partial, price: price.price });
-    }
-  }
+  // "चना 5 किलो 325 रुपये": an amount without "किलो", "रेट" or "प्रति" after it
+  // is the total for the line, the way it is written on shop slips. Say
+  // "325 रुपये किलो" or "रेट 325" for a rate.
+  if (mode === 'unknown') mode = qty === 1 ? 'rate' : 'total';
   if (mode === 'rate') {
     rate = price.price;
     if (price.each && unit === 'dozen') {
@@ -338,6 +370,11 @@ function parseAdd(tokens) {
       }
     }
   } else {
+    // A total for grams reads better per kilo: 500 g for ₹120 -> 0.5 kg × ₹240.
+    if (unit === 'g' || unit === 'ml') {
+      qty = convertQuantity(qty, unit, unit === 'g' ? 'kg' : 'l');
+      unit = unit === 'g' ? 'kg' : 'l';
+    }
     rate = price.price / qty;
   }
   return { type: 'add', name, qty, unit, rate, priceMode: mode, total: mode === 'total' ? price.price : null };

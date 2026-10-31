@@ -62,9 +62,9 @@ test('a bad item in the list is reported, the others still come through', () => 
   assert.deepEqual(r.map((x) => x.cmd.type), ['add', 'error', 'add']);
   assert.equal(r[1].cmd.reason, 'missing_rate');
   assert.equal(r[1].cmd.partial.name, 'दाल');
-  // Ambiguous price is never guessed
-  const amb = parseMany('मिर्ची 500 ग्राम 120 रुपये');
-  assert.equal(amb[0].cmd.reason, 'ambiguous_price');
+  // A plain amount is the line total: 500 g for ₹120 -> 0.5 kg × ₹240
+  const amt = parseMany('मिर्ची 500 ग्राम 120 रुपये')[0].cmd;
+  assert.deepEqual([amt.qty, amt.unit, amt.rate, amt.priceMode], [0.5, 'kg', 240, 'total']);
   const noName = parseMany('25 kg का बोरा 4 बोरा 1200 rate');
   assert.equal(noName[0].cmd.reason, 'missing_name');
   assert.equal(noName[0].cmd.partial.qty, 4);
@@ -84,4 +84,23 @@ test('pack size + count + rate in any order', () => {
   assert.deepEqual(adds('मैगी 1 किलो वाला पैकेट 5 पैकेट 120 रुपये पैकेट'), [['मैगी (1 kg)', 5, 'packet', 120]]);
   // Two weights is still unclear, so it is asked, not guessed.
   assert.equal(parseMany('2 kg 3 kg rice at 60 per kg')[0].cmd.reason, 'ambiguous');
+});
+
+test('lines from the shop slips: amount, not rate', () => {
+  const rate = (text) => parseMany(text).map(({ cmd }) => {
+    assert.equal(cmd.type, 'add', `${text} -> ${JSON.stringify(cmd)}`);
+    return [cmd.name, cmd.qty, cmd.unit, Math.round(cmd.rate * 100) / 100];
+  });
+  assert.deepEqual(rate('चना 5 किलो 325'), [['चना', 5, 'kg', 65]]);
+  assert.deepEqual(rate('बासमती चावल 20 किलो 2100'), [['बासमती चावल', 20, 'kg', 105]]);
+  assert.deepEqual(rate('फॉर्च्यून 3 टिन 7290'), [['फॉर्च्यून', 3, 'tin', 2430]]);
+  assert.deepEqual(rate('फॉर्च्यून 7 16660'), [['फॉर्च्यून', 7, '', 2380]]);
+  assert.deepEqual(rate('चीनी 2 इनटू 30 4520'), [['चीनी (30 kg)', 2, 'bag', 2260]]);
+  assert.deepEqual(rate('बाजरा 6 इनटू 25 4800'), [['बाजरा (25 kg)', 6, 'bag', 800]]);
+  assert.deepEqual(rate('Chini - 2x30 4520'), [['chini (30 kg)', 2, 'bag', 2260]]);
+  assert.deepEqual(rate('चीनी 2 गुणा 30 75 रुपये किलो'), [['चीनी (30 kg)', 60, 'kg', 75]]);
+  // A whole slip said in one go
+  assert.deepEqual(rate('चना 5 किलो 325 बेसन 10 किलो 840 फॉर्च्यून 3 टिन 7290 चना दाल 6 किलो 450 चना दाल 5 किलो 325').map((r) => r[3]), [65, 84, 2430, 75, 65]);
+  // "3 करके" is how many, never an amount
+  assert.equal(parseMany('चीनी 50 किलो 3 करके')[0].cmd.reason, 'missing_rate');
 });

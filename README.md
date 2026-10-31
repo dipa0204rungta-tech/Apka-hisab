@@ -55,6 +55,9 @@ in one breath, and “और” / “फिर” / “next” between them is o
 * Grams at a per-kilo rate are converted: “मिर्ची 500 ग्राम 200 रुपये किलो” → 0.5 kg × ₹200.
 * **What I heard** lists every item: ✓ added (with **Remove**), or ⚠ to check (missing price, unclear rate or total, already on the bill) with **Fix**, **Add as new line** or **Skip**. Nothing is guessed.
 * A list can also be typed or pasted into the “Heard” box, one item per line.
+* **Amount, as on a shop slip:** “चना 5 किलो 325”, “फॉर्च्यून 3 टिन 7290”: a plain amount is the total for the line, and the rate is worked out (₹65/kg, ₹2430/टिन). Say “325 रुपये किलो”, “रेट 325” or “प्रति बोरा” for a rate.
+* **“6 इनटू 25 4800”** / “2 x 30” / “2 गुणा 30”: how many × size of each (6 बोरे × 25 kg).
+* **Same item twice** at a different quantity or price (two qualities of चना दाल) is added as a separate line; only an exact repeat is questioned.
 * **Size + count + rate:** “25 kg चावल का 4 बोरा ₹2,000 करके” → *चावल (25 kg)*, 4 बोरा × ₹2000. One weight plus one count means pack size and how many; “₹2000 करके” / “के हिसाब से” is the rate for each.
 * **Items spoken in parts** are joined: “काजू” … “आधा किलो” … “800 रुपये किलो” → one item.
 * **Talk near the phone** (no numbers, no units, several words) is shown greyed as “Not an item, ignored”.

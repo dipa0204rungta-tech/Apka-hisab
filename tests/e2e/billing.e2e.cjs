@@ -78,9 +78,11 @@ const mockSpeech = () => {
   assert.equal(await total(), '₹330.00');
 
   // Ambiguous price -> asks, prefills the form, nothing added
-  await say('add 2 kg sugar 40 rupees');
-  assert.match(await fb(), /rate per kg or the total/);
+  // Price left out: nothing is guessed; Fix fills the form with what was heard
+  await say('add 2 kg sugar');
+  assert.match(await fb(), /price of sugar/);
   assert.equal(await rows(), 2);
+  await page.locator('#heard-log .heard-entry.check', { hasText: 'sugar' }).locator('button', { hasText: 'Fix' }).click();
   assert.equal(await page.inputValue('#f-name'), 'sugar');
   assert.equal(await page.inputValue('#f-qty'), '2');
   assert.equal(await page.inputValue('#f-rate'), '');

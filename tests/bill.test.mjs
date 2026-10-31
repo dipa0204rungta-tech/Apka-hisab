@@ -71,9 +71,12 @@ test('prevents accidental duplicate items, including across languages', () => {
     assert.equal(r.ok, false);
     assert.equal(r.code, 'duplicate');
   }
-  const forced = addItem(bill, { name: 'rice', qty: 1, rate: 70 }, { allowDuplicate: true });
+  const forced = addItem(bill, { name: 'rice', qty: 2, unit: 'kg', rate: 60 }, { allowDuplicate: true });
   assert.ok(forced.ok);
   assert.equal(forced.bill.items.length, 2);
+  // Same item at another quantity or price is a separate line, not an accident.
+  assert.ok(addItem(bill, { name: 'चावल', qty: 5, unit: 'kg', rate: 60 }).ok);
+  assert.ok(addItem(bill, { name: 'rice', qty: 2, unit: 'kg', rate: 65 }).ok);
 });
 
 test('edit and remove items', () => {
