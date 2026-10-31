@@ -2,7 +2,8 @@ import {
   createBill, addItem, updateItem, removeItem, setDiscount, computeTotals, validateBillForSave,
   validateItemFields, findItemsByName, convertQuantity, itemAmount, formatMoney, formatQty, unitLabel, round3,
 } from './bill.js';
-import { parseMany } from './voice-parser.js';
+import { parseMany, phraseShape } from './voice-parser.js';
+import { createCatalog } from './products.js';
 import { normaliseDigits } from './numbers.js';
 import { speechSupport, listenContinuous } from './speech.js';
 import { LocalBillStore, DEFAULT_SETTINGS } from './storage.js';
@@ -24,6 +25,7 @@ const state = {
 };
 
 let store = null;
+const catalog = createCatalog();
 
 // ---------------------------------------------------------------- helpers
 
@@ -274,6 +276,7 @@ function updateHeardSummary() {
 }
 
 function clearHeardLog() {
+  state.pending = null;
   $('heard-log').replaceChildren();
   $('heard-section').hidden = true;
   state.fixEntry = null;
@@ -308,6 +311,66 @@ function skipAction() {
   return { label: 'Skip', onClick: (li) => { if (state.fixEntry === li) state.fixEntry = null; setEntry(li, 'done', 'Skipped. Not added to the bill.'); } };
 }
 
+function heardNote(cmd) {
+  return cmd.heardAs ? ` (heard “${cmd.heardAs}”)` : '';
+}
+
+/** Fix small mishearings of item names using the list of known items. */
+function correctNames(cmd) {
+  if (cmd.type === 'add') {
+    const c = catalog.correct(cmd.name);
+    if (c.heard) { cmd.name = c.name; cmd.heardAs = c.heard; }
+  } else if (cmd.type === 'error' && cmd.partial?.name) {
+    const c = catalog.correct(cmd.partial.name);
+    if (c.heard) {
+      cmd.message = cmd.message.split(cmd.partial.name).join(c.name);
+      cmd.partial = { ...cmd.partial, name: c.name };
+      cmd.heardAs = c.heard;
+    }
+  }
+  return cmd;
+}
+
+/**
+ * One phrase from the microphone. Speech comes in pieces split by pauses, so
+ * this joins a phrase that has no item name to the unfinished item before it
+ * ("काजू" … "आधा किलो" … "800 रुपये किलो"), and ignores talk that is clearly
+ * not an item (no numbers, no units, several words).
+ */
+function handleVoicePhrase(text) {
+  const results = parseMany(text);
+  const only = results.length === 1 ? results[0].cmd : null;
+  const shape = phraseShape(text);
+  const pending = state.pending;
+  state.pending = null;
+
+  if (only?.type === 'error' && shape.numbers === 0 && shape.units === 0 && shape.words >= 4) {
+    if (pending) state.pending = pending; // conversation in between does not end an item
+    logHeard(text, 'done', 'Not an item, ignored.');
+    return;
+  }
+
+  if (pending && only?.type === 'error'
+      && (only.reason === 'missing_name' || (pending.cmd.reason === 'missing_name' && shape.numbers === 0))) {
+    const combined = `${pending.text} ${text}`;
+    if (parseMany(combined).length === 1) {
+      pending.li.remove();
+      if (state.fixEntry === pending.li) state.fixEntry = null;
+      updateHeardSummary();
+      handleSpeech(combined, { voice: true });
+      return;
+    }
+  }
+
+  // The previous phrase was only a name and nothing followed it: probably a
+  // stray word. Keep it visible but do not count it as something to check.
+  if (pending && pending.cmd.reason === 'missing_qty' && phraseShape(pending.text).numbers === 0 && pending.li.isConnected) {
+    setEntry(pending.li, 'done', `Only the name “${pending.cmd.partial?.name || pending.text}” was heard, so nothing was added.`,
+      pending.cmd.partial ? [fixAction(pending.cmd.partial, pending.cmd.reason)] : []);
+  }
+  handleSpeech(text, { voice: true });
+}
+
 /** Add one item from a list without stopping to ask; problems go to the list. */
 function addFromList(cmd, said) {
   const fields = { name: cmd.name, qty: round3(cmd.qty), unit: cmd.unit, rate: cmd.rate };
@@ -320,7 +383,7 @@ function addFromList(cmd, said) {
   if (r.ok) {
     commit(r.bill, 'add');
     flashRow(r.item.id);
-    logHeard(said, 'ok', `Added ${describeItem(r.item)}`, [removeAction(r.item.id)]);
+    logHeard(said, 'ok', `Added ${describeItem(r.item)}${heardNote(cmd)}`, [removeAction(r.item.id)]);
     return true;
   }
   if (r.code === 'duplicate') {
@@ -347,12 +410,12 @@ function addFromList(cmd, said) {
  * Handle everything said (or typed) in one go: one item, a list of 15-20
  * items, or a command such as remove, discount or "print the bill".
  */
-function handleSpeech(text) {
+function handleSpeech(text, { voice = false } = {}) {
   if (state.saving) {
     showFeedback('ask', 'Please wait, this bill is being saved.');
     return;
   }
-  const results = parseMany(text);
+  const results = parseMany(text).map((r) => ({ ...r, cmd: correctNames(r.cmd) }));
   if (!results.length) return;
   const many = results.length > 1;
   let added = 0;
@@ -386,8 +449,19 @@ function handleSpeech(text) {
       continue;
     }
     if (many && cmd.type === 'error') {
-      logHeard(said, 'check', cmd.message, cmd.partial ? [fixAction(cmd.partial, cmd.reason), skipAction()] : [skipAction()]);
+      const li = logHeard(said, 'check', `${cmd.message}${heardNote(cmd)}`, cmd.partial ? [fixAction(cmd.partial, cmd.reason), skipAction()] : [skipAction()]);
       toCheck++;
+      // The last item of a phrase may be finished in the next phrase.
+      if (voice && said === results[results.length - 1].text && /^missing_/.test(cmd.reason)) state.pending = { text: said, cmd, li };
+      continue;
+    }
+
+    // While the mic is on, an unfinished item may be completed by the next
+    // phrase, so do not fill the form yet; the list entry has a Fix button.
+    if (voice && cmd.type === 'error' && /^missing_/.test(cmd.reason)) {
+      const li = logHeard(said, 'check', `${cmd.message}${heardNote(cmd)}`, cmd.partial ? [fixAction(cmd.partial, cmd.reason), skipAction()] : [skipAction()]);
+      state.pending = { text: said, cmd, li };
+      showFeedback('ask', `${cmd.message} Keep speaking, or tap Fix in the list.`);
       continue;
     }
 
@@ -400,8 +474,9 @@ function handleSpeech(text) {
       logHeard(said, 'ok', `Added ${describeItem(newItem)}`, [removeAction(newItem.id)]);
     } else if (cmd.type === 'error') {
       // The form is already filled in with what was understood.
-      const li = logHeard(said, 'check', cmd.message, cmd.partial ? [fixAction(cmd.partial, cmd.reason), skipAction()] : [skipAction()]);
+      const li = logHeard(said, 'check', `${cmd.message}${heardNote(cmd)}`, cmd.partial ? [fixAction(cmd.partial, cmd.reason), skipAction()] : [skipAction()]);
       if (cmd.partial) state.fixEntry = li;
+      if (voice && /^missing_/.test(cmd.reason)) state.pending = { text: said, cmd, li };
     } else {
       logHeard(said, fb.kind === 'ok' ? 'ok' : 'check', fb.text);
     }
@@ -417,6 +492,7 @@ function handleSpeech(text) {
 
 function stopListening() {
   state.listener?.stop();
+  state.pending = null;
 }
 
 // ------------------------------------------------------------- printing
@@ -514,7 +590,7 @@ function setupVoice() {
       onInterim: (text) => { $('heard-text').value = text; },
       onPhrase: (text) => {
         $('heard-text').value = text;
-        handleSpeech(text);
+        handleVoicePhrase(text);
       },
       onError: (message) => showFeedback('error', message),
       onEnd: (reason) => {
@@ -809,6 +885,7 @@ async function confirmSave({ print }) {
   try {
     const { bill, duplicate } = await store.saveBill(state.bill, state.settings);
     record = bill;
+    bill.items.forEach((it) => catalog.add(it.name)); // reviewed names help correct mishearings
     state.saved = bill;
     state.undo = null;
     clearForm();
@@ -921,6 +998,7 @@ async function init() {
   try {
     store = new LocalBillStore();
     state.settings = await store.getSettings();
+    (await store.listBills()).forEach((b) => b.items.forEach((it) => catalog.add(it.name)));
     const draft = await store.loadDraft();
     if (draft && Array.isArray(draft.items) && draft.id) {
       // Never resume a draft that was already saved (e.g. closed mid-save).

@@ -1,6 +1,6 @@
 // Offline support. Network first, so the shop always gets the latest version
 // when online; the cached copy is used when there is no connection.
-const CACHE = 'apka-hisab-v3';
+const CACHE = 'apka-hisab-v4';
 const APP_FILES = [
   './',
   'index.html',
@@ -11,6 +11,7 @@ const APP_FILES = [
   'assets/js/billing/escpos.js',
   'assets/js/billing/numbers.js',
   'assets/js/billing/printers.js',
+  'assets/js/billing/products.js',
   'assets/js/billing/receipt.js',
   'assets/js/billing/receipt-image.js',
   'assets/js/billing/speech.js',

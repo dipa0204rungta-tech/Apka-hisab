@@ -74,3 +74,14 @@ test('other commands in the same breath', () => {
   const r = parseMany('चावल 5 किलो 40 रुपये किलो। 10 रुपये छूट दो। बिल प्रिंट करो');
   assert.deepEqual(r.map((x) => x.cmd.type), ['add', 'discount', 'finish']);
 });
+
+test('pack size + count + rate in any order', () => {
+  assert.deepEqual(adds('25 kg चावल का 4 बोरा ₹2,000 करके'), [['चावल (25 kg)', 4, 'bag', 2000]]);
+  assert.deepEqual(adds('25 किलो चावल का 4 बोरा 2000 रुपये करके'), [['चावल (25 kg)', 4, 'bag', 2000]]);
+  assert.deepEqual(adds('चावल 25 किलो वाला 4 बोरा 2000 रुपये बोरा'), [['चावल (25 kg)', 4, 'bag', 2000]]);
+  assert.deepEqual(adds('चीनी 50 किलो 3 करके 2100 रुपये करके'), [['चीनी (50 kg)', 3, 'bag', 2100]]);
+  assert.deepEqual(adds('चावल 25 किलो वाला 4 बोरा 40 रुपये किलो'), [['चावल (25 kg)', 100, 'kg', 40]]);
+  assert.deepEqual(adds('मैगी 1 किलो वाला पैकेट 5 पैकेट 120 रुपये पैकेट'), [['मैगी (1 kg)', 5, 'packet', 120]]);
+  // Two weights is still unclear, so it is asked, not guessed.
+  assert.equal(parseMany('2 kg 3 kg rice at 60 per kg')[0].cmd.reason, 'ambiguous');
+});

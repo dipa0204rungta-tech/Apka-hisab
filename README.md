@@ -55,6 +55,10 @@ in one breath, and “और” / “फिर” / “next” between them is o
 * Grams at a per-kilo rate are converted: “मिर्ची 500 ग्राम 200 रुपये किलो” → 0.5 kg × ₹200.
 * **What I heard** lists every item: ✓ added (with **Remove**), or ⚠ to check (missing price, unclear rate or total, already on the bill) with **Fix**, **Add as new line** or **Skip**. Nothing is guessed.
 * A list can also be typed or pasted into the “Heard” box, one item per line.
+* **Size + count + rate:** “25 kg चावल का 4 बोरा ₹2,000 करके” → *चावल (25 kg)*, 4 बोरा × ₹2000. One weight plus one count means pack size and how many; “₹2000 करके” / “के हिसाब से” is the rate for each.
+* **Items spoken in parts** are joined: “काजू” … “आधा किलो” … “800 रुपये किलो” → one item.
+* **Talk near the phone** (no numbers, no units, several words) is shown greyed as “Not an item, ignored”.
+* **Misheard names** of common kirana items, and of items on your saved bills, are corrected when one letter or matra is off (“जरा” → जीरा, “कंजू” → काजू), and the list shows what was heard.
 
 ## Voice commands
 

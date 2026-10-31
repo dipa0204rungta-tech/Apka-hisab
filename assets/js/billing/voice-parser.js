@@ -33,6 +33,10 @@ const PER_WORDS = nfcSet(['per', 'each', 'प्रति', 'पर', 'पे', 
 const EACH_WORDS = nfcSet(['each', 'every']);
 // "1200 rate" / "1200 रुपये रेट": the rate word after the number
 const RATE_AFTER = nfcSet(['rate', 'रेट', 'भाव', 'bhav', 'bhaav', 'दाम', 'daam', 'price', 'कीमत']);
+// "₹2000 करके" / "2000 रुपये के हिसाब से": that price is the rate for each one
+const EACH_AFTER_PRICE = nfcSet(['करके', 'karke', 'हिसाब', 'hisab', 'hisaab', 'each', 'प्रत्येक']);
+const WEIGHT_UNITS = new Set(['kg', 'g', 'l', 'ml']);
+const COUNT_UNITS = new Set(['bag', 'pcs', 'packet', 'box', 'bottle', 'dozen']);
 // "30 किलो का बोरा": words between a sack's size and the sack
 const BAG_LINK = nfcSet(['ka', 'ki', 'ke', 'का', 'की', 'के', 'of', 'wala', 'wali', 'wale', 'वाला', 'वाली', 'वाले']);
 const RATE_MARKERS = nfcSet(['at', '@', 'rate', 'bhav', 'bhaav', 'भाव', 'दाम', 'daam', 'रेट', 'price', 'कीमत', 'keemat', 'kimat']);
@@ -139,6 +143,11 @@ function findPrices(tokens, skip = new Set()) {
       found.push({ price: tok.value, mode: 'rate', rateUnit: null, used, index: i });
       return;
     }
+    // "₹2000 करके", "2000 रुपये के हिसाब से": the rate for each one
+    if (hasRs && after && (EACH_AFTER_PRICE.has(after.t) || (TOTAL_MARKERS_AFTER.has(after.t) && EACH_AFTER_PRICE.has(after2?.t)))) {
+      found.push({ price: tok.value, mode: 'rate', rateUnit: null, used, index: i });
+      return;
+    }
     // "60 रुपये किलो" / "60 rupees kilo"
     if (hasRs && after?.kind === 'unit') {
       used.add(j);
@@ -237,7 +246,7 @@ function nameFrom(tokens, used, extraStop = new Set()) {
 const ADD_STOP = nfcSet([...ADD_WORDS, ...RATE_MARKERS, ...TOTAL_MARKERS_BEFORE, ...TOTAL_MARKERS_AFTER]);
 
 function parseAdd(tokens) {
-  const bag = findBag(tokens);
+  let bag = findBag(tokens);
   const bagUsed = bag ? bag.used : new Set();
   const prices = findPrices(tokens, bagUsed);
   if (prices.length > 1) {
@@ -245,7 +254,19 @@ function parseAdd(tokens) {
   }
   const price = prices[0] ?? null;
   const priceUsed = new Set([...(price ? price.used : []), ...bagUsed]);
-  const quantities = findQuantities(tokens, priceUsed);
+  let quantities = findQuantities(tokens, priceUsed);
+  // Pack size + how many: "25 kg चावल का 4 बोरा", "1 किलो वाला पैकेट 5", "चीनी 50 किलो 3 करके".
+  // One weight and one count: the weight is the size of each pack, the count is how many are sold.
+  if (!bag && quantities.length === 2) {
+    const weight = quantities.find((q) => WEIGHT_UNITS.has(q.unit));
+    const count = quantities.find((q) => q !== weight && (q.unit === '' || COUNT_UNITS.has(q.unit)));
+    if (weight && count && Number.isInteger(count.qty)) {
+      bag = { size: weight.qty, unit: weight.unit, used: weight.used };
+      // A bare count is sacks for big packs and pieces for small ones.
+      const big = convertQuantity(weight.qty, weight.unit, weight.unit === 'g' || weight.unit === 'kg' ? 'kg' : 'l') >= 10;
+      quantities = [{ ...count, unit: count.unit || (big ? 'bag' : 'pcs') }];
+    }
+  }
   const used = new Set(priceUsed);
   for (const q of quantities) for (const i of q.used) used.add(i);
   // Unit words that were not part of a quantity or price ("kilo chawal") are not part of the name.
@@ -289,7 +310,7 @@ function parseAdd(tokens) {
       qty = convertQuantity(qty, 'dozen', 'pcs'); // "2 dozen eggs at 6 rupees each"
       unit = 'pcs';
     }
-    if (bag && price.rateUnit && price.rateUnit !== 'bag' && unit === 'bag') {
+    if (bag && price.rateUnit && WEIGHT_UNITS.has(price.rateUnit) && COUNT_UNITS.has(unit)) {
       // "2 बोरा, 25 किलो का, 40 रुपये किलो" -> 50 kg at ₹40
       const converted = convertQuantity(qty * bag.size, bag.unit, price.rateUnit);
       if (converted === null) {
@@ -297,7 +318,7 @@ function parseAdd(tokens) {
       }
       qty = converted;
       unit = price.rateUnit;
-    } else if (bag && price.rateUnit === 'bag' && unit && unit !== 'bag') {
+    } else if (bag && price.rateUnit === 'bag' && unit && WEIGHT_UNITS.has(unit)) {
       // "50 किलो, 25 किलो का बोरा, 1000 रुपये बोरा" -> 2 bags at ₹1000
       const inBagUnit = convertQuantity(qty, unit, bag.unit);
       if (inBagUnit === null) {
@@ -481,6 +502,16 @@ export function parseMany(text) {
     }
   }
   return results;
+}
+
+/** Rough shape of a phrase: how many numbers, units/₹ and item-like words it has. */
+export function phraseShape(text) {
+  const tokens = tokenise(String(text ?? ''));
+  return {
+    numbers: tokens.filter((t) => t.kind === 'num').length,
+    units: tokens.filter((t) => t.kind === 'unit' || t.kind === 'rs').length,
+    words: tokens.filter((t) => t.kind === 'word' && canStartItem(t)).length,
+  };
 }
 
 export const _internal = { tokenise };
