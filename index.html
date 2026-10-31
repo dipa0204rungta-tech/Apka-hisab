@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Voice Billing – Apka Hisab</title>
+  <meta name="theme-color" content="#0b6e4f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Apka Hisab">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="assets/css/billing.css">
+</head>
+<body>
+  <div class="app" id="app">
+    <header class="topbar">
+      <h1>Apka Hisab <span>Billing</span></h1>
+      <div class="topbar-actions">
+        <button type="button" class="btn btn-ghost" id="btn-settings" aria-label="Shop settings">⚙ Settings</button>
+        <button type="button" class="btn btn-primary" id="btn-new-bill">+ New Bill</button>
+      </div>
+    </header>
+
+    <div class="banner" id="banner" role="alert" hidden></div>
+
+    <main>
+      <section class="card bill-head">
+        <div class="bill-status" id="bill-status">Draft bill</div>
+        <label class="field">
+          <span>Customer name <small>(optional)</small></span>
+          <input type="text" id="customer-name" autocomplete="off" maxlength="80" placeholder="e.g. Ramesh">
+        </label>
+      </section>
+
+      <section class="card voice" aria-labelledby="voice-title">
+        <div class="voice-row">
+          <h2 id="voice-title">Speak an item</h2>
+          <label class="lang">
+            <span class="sr-only">Voice language</span>
+            <select id="voice-lang">
+              <option value="en-IN">English</option>
+              <option value="hi-IN">हिंदी</option>
+            </select>
+          </label>
+        </div>
+        <button type="button" class="mic" id="btn-mic" aria-pressed="false">
+          <span class="mic-icon" aria-hidden="true">🎤</span>
+          <span class="mic-label" id="mic-label">Tap to speak</span>
+        </button>
+        <p class="hint" id="voice-hint">Say: “Add two kilos of rice at 60 rupees per kilo” or “दो किलो चावल 60 रुपये किलो”.</p>
+        <form class="heard" id="heard-form" autocomplete="off">
+          <label for="heard-text">Heard (you can correct it or type a command)</label>
+          <div class="heard-row">
+            <input type="text" id="heard-text" placeholder="Recognised text appears here">
+            <button type="submit" class="btn">Apply</button>
+          </div>
+        </form>
+        <div class="feedback" id="feedback" aria-live="polite" hidden></div>
+      </section>
+
+      <section class="card manual" aria-labelledby="manual-title">
+        <h2 id="manual-title">Add item manually</h2>
+        <form id="item-form" class="item-form" autocomplete="off" novalidate>
+          <label class="field f-name"><span>Item</span><input type="text" id="f-name" maxlength="60" required></label>
+          <label class="field f-qty"><span>Qty</span><input type="text" inputmode="decimal" id="f-qty" required></label>
+          <label class="field f-unit"><span>Unit</span>
+            <select id="f-unit">
+              <option value="">—</option>
+              <option value="kg">kg</option>
+              <option value="g">g</option>
+              <option value="l">L</option>
+              <option value="ml">ml</option>
+              <option value="pcs">pcs</option>
+              <option value="dozen">dozen</option>
+              <option value="packet">packet</option>
+              <option value="bottle">bottle</option>
+              <option value="box">box</option>
+            </select>
+          </label>
+          <label class="field f-rate"><span>Rate ₹</span><input type="text" inputmode="decimal" id="f-rate" required></label>
+          <div class="f-amount">Amount <strong id="f-amount">₹0.00</strong></div>
+          <div class="form-errors" id="form-errors" role="alert" hidden></div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary" id="btn-add-item">Add item</button>
+            <button type="button" class="btn btn-ghost" id="btn-cancel-edit" hidden>Cancel edit</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card bill" aria-labelledby="bill-title">
+        <h2 id="bill-title">Current bill</h2>
+        <table class="bill-table" id="bill-table">
+          <thead><tr><th>#</th><th>Item</th><th>Qty</th><th class="num">Rate</th><th class="num">Amount</th><th><span class="sr-only">Actions</span></th></tr></thead>
+          <tbody id="bill-rows"></tbody>
+        </table>
+        <p class="empty" id="bill-empty">No items yet. Speak or add an item above.</p>
+
+        <div class="totals">
+          <div class="t-row"><span>Subtotal</span><span id="t-subtotal">₹0.00</span></div>
+          <form class="t-row discount" id="discount-form" autocomplete="off">
+            <label for="discount-value">Discount</label>
+            <div class="discount-inputs">
+              <input type="text" inputmode="decimal" id="discount-value" placeholder="0">
+              <select id="discount-type" aria-label="Discount type">
+                <option value="flat">₹</option>
+                <option value="percent">%</option>
+              </select>
+              <button type="submit" class="btn btn-small">Apply</button>
+            </div>
+            <span id="t-discount">−₹0.00</span>
+          </form>
+          <div class="t-row grand"><span>Grand total</span><span id="t-total">₹0.00</span></div>
+        </div>
+
+        <div class="bill-actions">
+          <button type="button" class="btn btn-primary btn-large" id="btn-save">Review &amp; Print Bill</button>
+          <button type="button" class="btn btn-large" id="btn-print" hidden>Print Again</button>
+        </div>
+        <p class="hint" id="actions-hint">When the bill is ready, tap “Review &amp; Print Bill” (or say “print the bill”) and check it before printing.</p>
+      </section>
+
+      <section class="card printer" aria-labelledby="printer-title">
+        <h2 id="printer-title">Printer</h2>
+        <p class="printer-status" id="printer-status">No Bluetooth printer connected. Receipts use the phone's print option.</p>
+        <div class="printer-actions">
+          <button type="button" class="btn" id="btn-connect-printer">Connect Bluetooth printer</button>
+          <button type="button" class="btn" id="btn-test-print" disabled>Test print</button>
+        </div>
+        <p class="hint hint-left">When the bill is ready, tap “Review &amp; Print Bill” or say “print the bill”. The bill opens for checking, and it prints only when you tap “Print Bill”.</p>
+      </section>
+
+      <section class="card history" aria-labelledby="history-title">
+        <h2 id="history-title">Recent bills</h2>
+        <ul class="history-list" id="history-list"></ul>
+        <p class="empty" id="history-empty">No saved bills yet.</p>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="dlg-review" class="dialog">
+    <form method="dialog" class="dialog-body">
+      <h2>Check the bill</h2>
+      <p class="review-note">Check every item, quantity, rate and the total before printing.</p>
+      <div id="review-content"></div>
+      <p class="hint hint-left" id="review-printer"></p>
+      <div class="dialog-actions">
+        <button value="cancel" class="btn btn-ghost">Back to bill</button>
+        <button type="button" class="btn" id="btn-save-only">Save without printing</button>
+        <button type="button" class="btn btn-primary btn-print-bill" id="btn-print-bill">Print Bill</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-print" class="dialog">
+    <form method="dialog" class="dialog-body">
+      <h2>Receipt preview</h2>
+      <label class="field inline"><span>Paper</span>
+        <select id="paper-width">
+          <option value="58">58 mm</option>
+          <option value="80">80 mm</option>
+        </select>
+      </label>
+      <div class="receipt-preview" id="receipt-preview"></div>
+      <p class="hint" id="print-via"></p>
+      <div class="dialog-actions">
+        <button value="cancel" class="btn btn-ghost">Close</button>
+        <button type="button" class="btn btn-primary" id="btn-do-print">Print</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-settings" class="dialog">
+    <form method="dialog" class="dialog-body" id="settings-form">
+      <h2>Shop settings</h2>
+      <label class="field"><span>Shop name</span><input type="text" name="shopName" maxlength="60" required></label>
+      <label class="field"><span>Address</span><input type="text" name="address" maxlength="120"></label>
+      <label class="field"><span>Phone</span><input type="tel" name="phone" maxlength="30"></label>
+      <label class="field"><span>GSTIN <small>(optional)</small></span><input type="text" name="gstin" maxlength="20"></label>
+      <label class="field"><span>Receipt footer</span><input type="text" name="footer" maxlength="80"></label>
+      <label class="field"><span>Bill number prefix</span><input type="text" name="billPrefix" maxlength="10"></label>
+      <label class="field"><span>Default paper</span>
+        <select name="paperWidth"><option value="58">58 mm</option><option value="80">80 mm</option></select>
+      </label>
+      <div class="dialog-actions">
+        <button value="cancel" class="btn btn-ghost" formnovalidate>Cancel</button>
+        <button value="save" class="btn btn-primary">Save settings</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-confirm" class="dialog">
+    <form method="dialog" class="dialog-body">
+      <p id="confirm-text"></p>
+      <div class="dialog-actions">
+        <button value="no" class="btn btn-ghost">Cancel</button>
+        <button value="yes" class="btn btn-danger" id="confirm-yes">Yes</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="print-root" aria-hidden="true"></div>
+
+  <script type="module" src="assets/js/billing/app.js"></script>
+  <script>
+    // If the app scripts were blocked (e.g. index.html opened by double-click), say so instead of failing silently.
+    setTimeout(function () {
+      if (window.__billingReady) return;
+      var b = document.getElementById('banner');
+      b.textContent = 'The app could not start. If you opened index.html by double-clicking it, open apka-hisab-billing.html instead (it works without a server), or run "npm start".';
+      b.hidden = false;
+    }, 1500);
+  </script>
+</body>
+</html>
