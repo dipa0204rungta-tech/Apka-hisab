@@ -1,8 +1,8 @@
 import {
   createBill, addItem, updateItem, removeItem, setDiscount, computeTotals, validateBillForSave,
-  validateItemFields, findItemsByName, convertQuantity, itemAmount, formatMoney, formatQty, unitLabel, round3,
+  validateItemFields, findItemsByName, convertQuantity, itemAmount, formatMoney, formatQty, unitLabel, round3, nameKey,
 } from './bill.js';
-import { parseMany, phraseShape } from './voice-parser.js';
+import { parseMany, phraseShape, _internal as parserInternal } from './voice-parser.js';
 import { createCatalog } from './products.js';
 import { normaliseDigits } from './numbers.js';
 import { speechSupport, listenContinuous } from './speech.js';
@@ -350,16 +350,28 @@ function handleVoicePhrase(text) {
     return;
   }
 
+  if (pending && pending.li.isConnected && only) {
+    const tokens = parserInternal.tokenise(text);
+    // The app asked for the rate and only a price came back ("60", "₹60"):
+    // that is the rate the shopkeeper was asked for, not a total.
+    if (pending.cmd.reason === 'missing_rate' && tokens.length
+        && tokens.every((t) => t.kind === 'num' || t.kind === 'rs') && tokens.filter((t) => t.kind === 'num').length === 1
+        && joinPending(pending, `${pending.text} रेट ${tokens.map((t) => t.t).join(' ')}`, 'add')) return;
+    // The answer repeats the name: "चावल 2 किलो" … "चावल 60 रुपये किलो" or
+    // "चावल का रेट 60". Complete the same item instead of asking again.
+    const saidName = only.type === 'change' ? only.target : only.type === 'error' ? only.partial?.name : null;
+    if (/^missing_(rate|qty)$/.test(pending.cmd.reason) && saidName
+        && (only.type === 'change' || /^missing_(rate|qty)$/.test(only.reason))
+        && sameItem(saidName, pending.cmd.partial?.name)) {
+      const nameWords = new Set(nameKey(baseName(saidName)).split(' '));
+      const rest = tokens.filter((t) => !(t.kind === 'word' && nameWords.has(nameKey(t.t)))).map((t) => t.t).join(' ');
+      if (joinPending(pending, `${pending.text} ${rest}`, 'add')) return;
+    }
+  }
+
   if (pending && only?.type === 'error'
       && (only.reason === 'missing_name' || (pending.cmd.reason === 'missing_name' && shape.numbers === 0))) {
-    const combined = `${pending.text} ${text}`;
-    if (parseMany(combined).length === 1) {
-      pending.li.remove();
-      if (state.fixEntry === pending.li) state.fixEntry = null;
-      updateHeardSummary();
-      handleSpeech(combined, { voice: true });
-      return;
-    }
+    if (joinPending(pending, `${pending.text} ${text}`)) return;
   }
 
   // The previous phrase was only a name and nothing followed it: probably a
@@ -369,6 +381,23 @@ function handleVoicePhrase(text) {
       pending.cmd.partial ? [fixAction(pending.cmd.partial, pending.cmd.reason)] : []);
   }
   handleSpeech(text, { voice: true });
+}
+
+const baseName = (name) => String(name || '').split(' (')[0];
+function sameItem(a, b) {
+  const key = (n) => nameKey(catalog.correct(baseName(n)).name);
+  return Boolean(a && b) && key(a) === key(b);
+}
+
+/** Replace the unfinished item in the list with it completed by the next phrase. */
+function joinPending(pending, combined, mustBe) {
+  const results = parseMany(combined);
+  if (results.length !== 1 || (mustBe && results[0].cmd.type !== mustBe)) return false;
+  pending.li.remove();
+  if (state.fixEntry === pending.li) state.fixEntry = null;
+  updateHeardSummary();
+  handleSpeech(combined, { voice: true });
+  return true;
 }
 
 /** Add one item from a list without stopping to ask; problems go to the list. */

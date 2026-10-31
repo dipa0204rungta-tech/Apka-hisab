@@ -15,17 +15,17 @@ const RUPEE_WORDS = nfcSet([
 ]);
 
 const UNIT_WORDS = {
-  kg: ['kg', 'kgs', 'kilo', 'kilos', 'kilogram', 'kilograms', 'kilogramme', 'kilogrammes', 'किलो', 'किलोग्राम', 'केजी'],
+  kg: ['kg', 'kgs', 'kilo', 'kilos', 'kilogram', 'kilograms', 'kilogramme', 'kilogrammes', 'किलो', 'किलोग्राम', 'केजी', 'किग्रा', 'केजीएस', 'किलोज'],
   g: ['g', 'gm', 'gms', 'gram', 'grams', 'gramme', 'grammes', 'ग्राम'],
   l: ['l', 'ltr', 'ltrs', 'litre', 'litres', 'liter', 'liters', 'लीटर', 'लिटर'],
   ml: ['ml', 'millilitre', 'millilitres', 'milliliter', 'milliliters', 'एमएल', 'मिलीलीटर'],
-  pcs: ['pc', 'pcs', 'piece', 'pieces', 'nos', 'nag', 'नग', 'पीस'],
+  pcs: ['pc', 'pcs', 'piece', 'pieces', 'nos', 'nag', 'नग', 'पीस', 'पिस', 'पीसेस', 'अदद'],
   dozen: ['dozen', 'dozens', 'darjan', 'दर्जन'],
-  packet: ['packet', 'packets', 'pack', 'packs', 'pkt', 'pkts', 'पैकेट', 'पैकिट'],
+  packet: ['packet', 'packets', 'pack', 'packs', 'pkt', 'pkts', 'पैकेट', 'पैकिट', 'पैकेट्स', 'पाकेट', 'पॉकेट', 'पैक', 'थैली', 'पाउच', 'pouch'],
   bottle: ['bottle', 'bottles', 'बोतल'],
-  box: ['box', 'boxes', 'dibba', 'डिब्बा', 'डिब्बे'],
+  box: ['box', 'boxes', 'dibba', 'डिब्बा', 'डिब्बे', 'डब्बा', 'डब्बे', 'पेटी', 'peti', 'carton', 'कार्टन', 'गत्ता'],
   tin: ['tin', 'tins', 'teen', 'टिन', 'टीन', 'टिनें', 'पीपा', 'पीपे', 'peepa'],
-  bag: ['bag', 'bags', 'sack', 'sacks', 'bora', 'bore', 'bori', 'boriya', 'katta', 'katte', 'बोरा', 'बोरे', 'बोरी', 'बोरिया', 'बोरियां', 'कट्टा', 'कट्टे'],
+  bag: ['bag', 'bags', 'sack', 'sacks', 'bora', 'bore', 'bori', 'boriya', 'katta', 'katte', 'बोरा', 'बोरे', 'बोरी', 'बोरिया', 'बोरियां', 'बोर', 'बोरों', 'कट्टा', 'कट्टे', 'कट्टों', 'थैला', 'थैले'],
 };
 const UNIT_LOOKUP = new Map();
 for (const [code, words] of Object.entries(UNIT_WORDS)) for (const w of words) UNIT_LOOKUP.set(w.normalize('NFC'), code);
@@ -37,7 +37,14 @@ const RATE_AFTER = nfcSet(['rate', 'रेट', 'भाव', 'bhav', 'bhaav', '�
 // "₹2000 करके" / "2000 रुपये के हिसाब से": that price is the rate for each one
 const EACH_AFTER_PRICE = nfcSet(['करके', 'karke', 'हिसाब', 'hisab', 'hisaab', 'each', 'प्रत्येक']);
 const WEIGHT_UNITS = new Set(['kg', 'g', 'l', 'ml']);
-const COUNT_UNITS = new Set(['bag', 'pcs', 'packet', 'box', 'bottle', 'dozen']);
+// "60 वाला चावल", "14 रुपये वाली मैगी": the price written on each one
+const PRICE_LABEL = nfcSet(['wala', 'wali', 'wale', 'वाला', 'वाली', 'वाले']);
+const LINK_WORDS = nfcSet(['ka', 'ki', 'ke', 'का', 'की', 'के']);
+// "45 के भाव से", "45 के हिसाब से", "45 के रेट से": a rate
+const RATE_PHRASE = nfcSet(['rate', 'रेट', 'भाव', 'bhav', 'bhaav', 'दाम', 'daam', 'हिसाब', 'hisab', 'hisaab', 'हिसाब']);
+// Containers a size can describe: "25 किलो का बोरा", "15 किलो का टिन"
+const CONTAINER_UNITS = new Set(['bag', 'tin', 'box', 'packet', 'bottle']);
+const COUNT_UNITS = new Set(['bag', 'pcs', 'packet', 'box', 'bottle', 'dozen', 'tin']);
 // "30 किलो का बोरा": words between a sack's size and the sack
 const BAG_LINK = nfcSet(['ka', 'ki', 'ke', 'का', 'की', 'के', 'of', 'wala', 'wali', 'wale', 'वाला', 'वाली', 'वाले']);
 const RATE_MARKERS = nfcSet(['at', '@', 'rate', 'bhav', 'bhaav', 'भाव', 'दाम', 'daam', 'रेट', 'price', 'कीमत', 'keemat', 'kimat']);
@@ -61,7 +68,7 @@ const STOPWORDS = nfcSet([
   'aur', 'और', 'bhi', 'भी', 'is', 'ko', 'को', 'it', 'its', 'my', 'this', 'that', 'be', 'should', 'make',
   'set', 'karo', 'kar', 'कर', 'करो', 'hai', 'है', 'प्रति', 'har', 'हर', 'line', 'entry', 'lagao', 'jodo',
   'hatao', 'ji', 'जी', 'now', 'abhi', 'अभी', 'then', 'by', 'off', 'apply', 'give', 'want', 'i', 'we',
-  '@', 'rate', 'price', 'rs', 'cost', 'only', 'sirf', 'सिर्फ', 'करके', 'karke', 'करके', 'कर', 'पर', 'पे', 'वो', 'ये', 'यह',
+  '@', 'rate', 'price', 'rs', 'cost', 'only', 'sirf', 'सिर्फ', 'करके', 'karke', 'करके', 'कर', 'हिसाब', 'hisab', 'भाव', 'रेट', 'दाम', 'पर', 'पे', 'वो', 'ये', 'यह',
 ]);
 
 // Multi-word Hindi verb phrases, normalised before tokenising so the "दो"
@@ -136,7 +143,7 @@ function err(message, extra = {}) {
 function findPrices(tokens, skip = new Set()) {
   const found = [];
   tokens.forEach((tok, i) => {
-    if (tok.kind !== 'num' || skip.has(i)) return;
+    if (tok.kind !== 'num' || skip.has(i) || found.some((f) => f.used.has(i))) return;
     const prev = tokens[i - 1];
     const next = tokens[i + 1];
     let j = i + 1;
@@ -150,6 +157,55 @@ function findPrices(tokens, skip = new Set()) {
     if (next?.kind === 'rs') used.add(i + 1);
     if (prev?.kind === 'rs') used.add(i - 1);
 
+    // "60 वाला", "14 रुपये वाली": the price of each one
+    if (after && PRICE_LABEL.has(after.t)) {
+      used.add(j);
+      found.push({ price: tok.value, mode: 'rate', rateUnit: null, used, index: i });
+      return;
+    }
+    if (after && LINK_WORDS.has(after.t)) {
+      // "45 के भाव से", "45 का रेट", "45 के हिसाब से"
+      if (after2 && RATE_PHRASE.has(after2.t)) {
+        used.add(j).add(j + 1);
+        if (tokens[j + 2] && ['से', 'se'].includes(tokens[j + 2].t)) used.add(j + 2);
+        found.push({ price: tok.value, mode: 'rate', rateUnit: null, used, index: i });
+        return;
+      }
+      // "30 का किलो", "2000 का बोरा", "150 रुपये का लीटर"
+      if (after2?.kind === 'unit' && tokens[j + 2]?.kind !== 'unit') {
+        used.add(j).add(j + 1);
+        found.push({ price: tok.value, mode: 'rate', rateUnit: after2.unit, used, index: i });
+        return;
+      }
+    }
+    // "2000 का एक", "2000 रुपये एक बोरा", "30 का एक पीस"
+    {
+      let k = j;
+      if (tokens[k] && LINK_WORDS.has(tokens[k].t)) k++;
+      const one = tokens[k];
+      if ((k > j || hasRs) && one?.kind === 'num' && one.value === 1 && (tokens[k + 1]?.kind !== 'num')) {
+        for (let m = j; m <= k; m++) used.add(m);
+        let rateUnit = null;
+        if (tokens[k + 1]?.kind === 'unit') { rateUnit = tokens[k + 1].unit; used.add(k + 1); }
+        found.push({ price: tok.value, mode: 'rate', rateUnit, used, index: i });
+        return;
+      }
+    }
+    // "प्रति किलो 60", "per kg 60", "किलो का 60": the unit is said before the price
+    {
+      let b = prev?.kind === 'rs' ? i - 2 : i - 1;
+      const link = tokens[b] && LINK_WORDS.has(tokens[b].t);
+      if (link) b--;
+      const unitTok = tokens[b];
+      const beforeUnit = tokens[b - 1];
+      const taken = found.some((f) => f.used.has(b));
+      if (unitTok?.kind === 'unit' && !taken && next?.kind !== 'unit' && beforeUnit?.kind !== 'num' && (link || (beforeUnit && PER_WORDS.has(beforeUnit.t) && !['a', 'an'].includes(beforeUnit.t)))) {
+        for (let m = b; m < i; m++) used.add(m);
+        if (beforeUnit && PER_WORDS.has(beforeUnit.t)) used.add(b - 1);
+        found.push({ price: tok.value, mode: 'rate', rateUnit: unitTok.unit, used, index: i });
+        return;
+      }
+    }
     // "60 per kilo", "60 rupees a kilo", "60 each", "60 प्रति किलो"
     if (after && PER_WORDS.has(after.t) && (after2?.kind === 'unit' || EACH_WORDS.has(after.t))) {
       if ((after.t === 'a' || after.t === 'an') && !hasRs) return; // "2 a kilo" is not a price
@@ -166,7 +222,8 @@ function findPrices(tokens, skip = new Set()) {
       return;
     }
     // "₹2000 करके", "2000 रुपये के हिसाब से": the rate for each one
-    if (hasRs && after && (EACH_AFTER_PRICE.has(after.t) || (TOTAL_MARKERS_AFTER.has(after.t) && EACH_AFTER_PRICE.has(after2?.t)))) {
+    if ((hasRs && after && EACH_AFTER_PRICE.has(after.t)) || (after && TOTAL_MARKERS_AFTER.has(after.t) && EACH_AFTER_PRICE.has(after2?.t))) {
+      if (!EACH_AFTER_PRICE.has(after.t)) used.add(j).add(j + 1);
       found.push({ price: tok.value, mode: 'rate', rateUnit: null, used, index: i });
       return;
     }
@@ -290,6 +347,17 @@ function parseAdd(tokens) {
       quantities = quantities.filter((q) => q !== amount);
     }
   }
+  // "चावल 2 किलो 60 किलो": the rupees were not heard, but nobody buys 2 kg and
+  // 60 kg of the same thing in one line. The second, bigger one is the rate.
+  if (!price && !bag && quantities.length === 2) {
+    const [a, b] = quantities;
+    const lastNum = tokens.reduce((last, t, i) => (t.kind === 'num' ? i : last), -1);
+    if (a.unit && a.unit === b.unit && WEIGHT_UNITS.has(a.unit) && b.used.has(lastNum) && b.qty >= 10 && b.qty > a.qty) {
+      price = { price: b.qty, mode: 'rate', rateUnit: b.unit, used: b.used };
+      for (const i of b.used) priceUsed.add(i);
+      quantities = [a];
+    }
+  }
   // Pack size + how many: "25 kg चावल का 4 बोरा", "1 किलो वाला पैकेट 5", "चीनी 50 किलो 3 करके".
   // One weight and one count: the weight is the size of each pack, the count is how many are sold.
   if (!bag && quantities.length === 2) {
@@ -324,7 +392,7 @@ function parseAdd(tokens) {
 
   if (!baseName) return err('I did not catch the item name.', { reason: 'missing_name', partial });
   if (!q) return err(`How much ${name}? The quantity is missing.`, { reason: 'missing_qty', partial });
-  if (!price) return err(`What is the price of ${name}? The rate is missing.`, { reason: 'missing_rate', partial });
+  if (!price) return err(`What is the price of ${name}? Say the rate, for example “60 रुपये किलो”.`, { reason: 'missing_rate', partial });
   if (price.price <= 0) return err('The price must be more than ₹0.', { reason: 'invalid', partial });
   if (q.qty <= 0) return err('The quantity must be more than 0.', { reason: 'invalid', partial });
 

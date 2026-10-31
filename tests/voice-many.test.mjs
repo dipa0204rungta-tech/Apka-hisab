@@ -104,3 +104,29 @@ test('lines from the shop slips: amount, not rate', () => {
   // "3 करके" is how many, never an amount
   assert.equal(parseMany('चीनी 50 किलो 3 करके')[0].cmd.reason, 'missing_rate');
 });
+
+test('everyday ways of saying the rate', () => {
+  const rate = (text) => parseMany(text).map(({ cmd }) => {
+    assert.equal(cmd.type, 'add', `${text} -> ${JSON.stringify(cmd)}`);
+    return [cmd.name, cmd.qty, cmd.unit, Math.round(cmd.rate * 100) / 100, cmd.priceMode];
+  });
+  assert.deepEqual(rate('चावल 60 वाला 2 किलो'), [['चावल', 2, 'kg', 60, 'rate']]);
+  assert.deepEqual(rate('5 मैगी 14 वाली'), [['मैगी', 5, '', 14, 'rate']]);
+  assert.deepEqual(rate('मैगी 5 पैकेट 14 रुपये वाला'), [['मैगी', 5, 'packet', 14, 'rate']]);
+  assert.deepEqual(rate('चीनी 2 किलो 45 के भाव से'), [['चीनी', 2, 'kg', 45, 'rate']]);
+  assert.deepEqual(rate('चीनी 2 किलो 45 के हिसाब से'), [['चीनी', 2, 'kg', 45, 'rate']]);
+  assert.deepEqual(rate('चीनी 2 किलो 45 का रेट'), [['चीनी', 2, 'kg', 45, 'rate']]);
+  assert.deepEqual(rate('आलू 2 किलो 30 का किलो'), [['आलू', 2, 'kg', 30, 'rate']]);
+  assert.deepEqual(rate('तेल 2 लीटर 150 रुपये का लीटर'), [['तेल', 2, 'l', 150, 'rate']]);
+  assert.deepEqual(rate('चावल 2 किलो प्रति किलो 60'), [['चावल', 2, 'kg', 60, 'rate']]);
+  assert.deepEqual(rate('चावल 2 किलो किलो का 60'), [['चावल', 2, 'kg', 60, 'rate']]);
+  assert.deepEqual(rate('चावल 2 किलो 60 किलो'), [['चावल', 2, 'kg', 60, 'rate']]);
+  assert.deepEqual(rate('चावल 4 बोरा 2000 का बोरा'), [['चावल', 4, 'bag', 2000, 'rate']]);
+  assert.deepEqual(rate('चावल 25 किलो वाला 4 बोरा 2000 रुपये एक बोरा'), [['चावल (25 kg)', 4, 'bag', 2000, 'rate']]);
+  assert.deepEqual(rate('साबुन 3 पीस 30 का एक'), [['साबुन', 3, 'pcs', 30, 'rate']]);
+  assert.deepEqual(rate('फॉर्च्यून तेल 15 किलो का टिन 2 टिन 2400 रुपये टिन'), [['फॉर्च्यून तेल (15 kg)', 2, 'tin', 2400, 'rate']]);
+  // the amount convention from the slips is unchanged
+  assert.deepEqual(rate('दाल 2 किलो 240'), [['दाल', 2, 'kg', 120, 'total']]);
+  // and in a list
+  assert.deepEqual(rate('चावल 2 किलो 60 वाला चीनी 5 किलो 45 के भाव से दाल 1 किलो 120 मैगी 5 पैकेट 14 वाली').map((r) => r[3]), [60, 45, 120, 14]);
+});

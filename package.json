@@ -7,6 +7,6 @@
     "start": "node scripts/serve.mjs",
     "build": "node scripts/build.mjs",
     "test": "node --test tests/*.test.mjs && node scripts/build.mjs --check",
-    "test:e2e": "node tests/e2e/billing.e2e.cjs && node tests/e2e/printer.e2e.cjs && node tests/e2e/voice-list.e2e.cjs && node tests/e2e/voice-real.e2e.cjs && node tests/e2e/slip.e2e.cjs"
+    "test:e2e": "node tests/e2e/billing.e2e.cjs && node tests/e2e/printer.e2e.cjs && node tests/e2e/voice-list.e2e.cjs && node tests/e2e/voice-real.e2e.cjs && node tests/e2e/slip.e2e.cjs && node tests/e2e/voice-answer.e2e.cjs"
   }
 }
