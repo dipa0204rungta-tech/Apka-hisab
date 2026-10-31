@@ -3,7 +3,7 @@
 Billing app for shops. Add items by speaking in Hindi or English, or type them in.
 Check the bill, tap **Print Bill**, and the receipt prints on a 58 mm or 80 mm thermal printer.
 
-**Open the app:** https://dipa0204rungta-tech.github.io/apka-hisab/
+**Open the app:** https://dipa0204rungta-tech.github.io/Apka-hisab/
 
 ## Use it on your phone
 
